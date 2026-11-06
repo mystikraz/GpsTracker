@@ -6,6 +6,7 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from fleet_tracker.db.models import Base
+from fleet_tracker.db.migration_guard import migration_database_url
 
 
 config = context.config
@@ -13,17 +14,14 @@ target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
-    database_url = os.environ.get(
-        "DIRECT_DATABASE_URL",
-        os.environ.get("DATABASE_URL", config.get_main_option("sqlalchemy.url")),
-    )
+    database_url, _ = migration_database_url(os.environ)
     context.configure(url=database_url, target_metadata=target_metadata, literal_binds=True, dialect_opts={"paramstyle": "named"})
     with context.begin_transaction():
         context.run_migrations()
 
 
 def run_migrations_online() -> None:
-    database_url = os.environ.get("DIRECT_DATABASE_URL") or os.environ.get("DATABASE_URL")
+    database_url, _ = migration_database_url(os.environ)
     configuration = config.get_section(config.config_ini_section) or {}
     if database_url:
         if database_url.startswith("postgresql://"):

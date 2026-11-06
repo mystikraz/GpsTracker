@@ -79,6 +79,8 @@ class RawMessage(Base):
     terminal_serial: Mapped[int] = mapped_column(Integer, nullable=False)
     raw_frame: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     body: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    redacted_body_length: Mapped[int | None] = mapped_column(Integer)
+    redacted_body_hash: Mapped[bytes | None] = mapped_column(LargeBinary)
     authenticated: Mapped[bool] = mapped_column(Boolean, nullable=False)
     parser_status: Mapped[str] = mapped_column(String(64), nullable=False)
     parse_error: Mapped[str | None] = mapped_column(Text)

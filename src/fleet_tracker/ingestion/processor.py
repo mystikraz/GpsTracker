@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import hashlib
+import logging
+import time
+from collections.abc import Awaitable, Callable
+from uuid import uuid4
 from typing import Protocol
 
 from fleet_tracker.protocol.jt808 import (
@@ -18,10 +23,13 @@ from fleet_tracker.protocol.jt808 import (
     decode_positions_batch,
     encode_general_response,
     encode_registration_response,
+    encode_frame,
     parse_position,
 )
 
 from .auth import DeviceAuthenticator, DeviceRecord, InMemoryDeviceRepository
+
+logger = logging.getLogger("fleet_tracker.ingestion")
 
 
 @dataclass(slots=True)
@@ -30,6 +38,11 @@ class ConnectionState:
     device: DeviceRecord | None = None
     authenticated: bool = False
     server_serial: int = 0
+    connection_id: str = field(default_factory=lambda: str(uuid4()))
+    source_ip: str = "unknown"
+    active: bool = True
+    last_activity: float = field(default_factory=time.monotonic)
+    close_callback: Callable[[], Awaitable[None]] | None = None
 
     def next_server_serial(self) -> int:
         self.server_serial = (self.server_serial + 1) & 0xFFFF
@@ -46,6 +59,8 @@ class RawMessageRecord:
     received_at: datetime
     authenticated: bool
     parser_status: str
+    redacted_body_length: int | None = None
+    redacted_body_hash: bytes | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,16 +104,25 @@ class InMemoryIngestionStore(InMemoryDeviceRepository):
         positions: tuple[Position, ...],
         parser_status: str,
     ) -> int:
+        sensitive = frame.header.message_id in {REGISTRATION_MESSAGE_ID, AUTHENTICATION_MESSAGE_ID}
+        stored_body = b"" if sensitive else frame.body
+        stored_frame = (
+            encode_frame(frame.header.message_id, frame.header.terminal_id, frame.header.serial, b"")
+            if sensitive
+            else frame.raw_frame
+        )
         self.raw_messages.append(
             RawMessageRecord(
                 terminal_id=device.terminal_id,
                 message_id=frame.header.message_id,
                 terminal_serial=frame.header.serial,
-                raw_frame=frame.raw_frame,
-                body=frame.body,
+                raw_frame=stored_frame,
+                body=stored_body,
                 received_at=received_at,
                 authenticated=authenticated,
                 parser_status=parser_status,
+                redacted_body_length=len(frame.body) if sensitive else None,
+                redacted_body_hash=hashlib.sha256(frame.body).digest() if sensitive else None,
             )
         )
         if authenticated:
@@ -134,10 +158,55 @@ class ProcessResult:
     parser_status: str = "rejected"
 
 
+class AuthenticatedConnectionRegistry:
+    """Enforce one authenticated TCP connection per terminal."""
+
+    def __init__(self, *, idle_seconds: float = 60.0) -> None:
+        if idle_seconds < 0:
+            raise ValueError("idle_seconds must be non-negative")
+        self.idle_seconds = idle_seconds
+        self._connections: dict[str, ConnectionState] = {}
+
+    async def claim(self, terminal_id: str, state: ConnectionState, source_ip: str) -> bool:
+        current = self._connections.get(terminal_id)
+        if current is not None and current is not state and current.active:
+            idle = time.monotonic() - current.last_activity
+            logger.warning(
+                "authenticated_connection_conflict terminal_id=%s old_source_ip=%s "
+                "new_source_ip=%s idle_seconds=%.3f action=%s",
+                terminal_id,
+                current.source_ip,
+                source_ip,
+                idle,
+                "replace" if idle > self.idle_seconds else "reject",
+            )
+            if idle <= self.idle_seconds:
+                return False
+            if current.close_callback is not None:
+                await current.close_callback()
+            current.active = False
+        state.connection_id = state.connection_id or str(uuid4())
+        state.source_ip = source_ip
+        state.active = True
+        self._connections[terminal_id] = state
+        return True
+
+    def release(self, state: ConnectionState) -> None:
+        if state.terminal_id and self._connections.get(state.terminal_id) is state:
+            self._connections.pop(state.terminal_id, None)
+
+
 class MessageProcessor:
-    def __init__(self, authenticator: DeviceAuthenticator, store: IngestionStore) -> None:
+    def __init__(
+        self,
+        authenticator: DeviceAuthenticator,
+        store: IngestionStore,
+        *,
+        connection_registry: AuthenticatedConnectionRegistry | None = None,
+    ) -> None:
         self.authenticator = authenticator
         self.store = store
+        self.connection_registry = connection_registry
 
     async def process(
         self,
@@ -145,11 +214,24 @@ class MessageProcessor:
         state: ConnectionState,
         *,
         received_at: datetime | None = None,
+        source_ip: str = "unknown",
     ) -> ProcessResult:
         received_at = received_at or datetime.now(timezone.utc)
+        state.last_activity = time.monotonic()
+        if not state.active:
+            return ProcessResult(close_connection=True, parser_status="connection_replaced")
         terminal_id = frame.header.terminal_id
         if state.terminal_id is not None and state.terminal_id != terminal_id:
             return ProcessResult(close_connection=True, parser_status="terminal_changed")
+
+        if frame.header.has_subpackage:
+            logger.warning(
+                "unsupported_subpackage terminal_id=%s message_id=0x%04x source_ip=%s",
+                terminal_id,
+                frame.header.message_id,
+                source_ip,
+            )
+            return ProcessResult(close_connection=True, parser_status="subpackage_unsupported")
 
         if frame.header.message_id == REGISTRATION_MESSAGE_ID:
             registration = await self.authenticator.registration_code(terminal_id)
@@ -186,9 +268,25 @@ class MessageProcessor:
                 auth_code = frame.body.decode("ascii")
             except UnicodeDecodeError:
                 auth_code = ""
+            provisioned_device = await self.authenticator.lookup(terminal_id)
             device = await self.authenticator.authenticate(terminal_id, auth_code)
             if device is None:
-                return ProcessResult(close_connection=True, parser_status="authentication_failed")
+                if provisioned_device is None:
+                    return ProcessResult(close_connection=True, parser_status="authentication_failed")
+                response = encode_general_response(
+                    terminal_id,
+                    state.next_server_serial(),
+                    frame.header.serial,
+                    frame.header.message_id,
+                    result=1,
+                )
+                return ProcessResult(
+                    responses=(response,),
+                    close_connection=True,
+                    parser_status="authentication_failed",
+                )
+            if self.connection_registry and not await self.connection_registry.claim(terminal_id, state, source_ip):
+                return ProcessResult(close_connection=True, parser_status="authenticated_connection_conflict")
             state.terminal_id = terminal_id
             state.device = device
             state.authenticated = True

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -11,12 +12,15 @@ from sqlalchemy import or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from fleet_tracker.ingestion.auth import DeviceRecord, DeviceRepository, SecretProtector
-from fleet_tracker.protocol.jt808 import JT808Frame, Position
+from fleet_tracker.protocol.jt808 import AUTHENTICATION_MESSAGE_ID, REGISTRATION_MESSAGE_ID, JT808Frame, Position, encode_frame
 
 from .models import Device, DeviceVehicleAssignment, RawMessage
+from .partitions import add_months, month_start, partition_month_starts
 
 
 UTC = timezone.utc
+logger = logging.getLogger("fleet_tracker.maintenance")
+SENSITIVE_RAW_MESSAGE_IDS = {REGISTRATION_MESSAGE_ID, AUTHENTICATION_MESSAGE_ID}
 
 
 def _position_extras(position: Position) -> dict[str, object]:
@@ -24,6 +28,18 @@ def _position_extras(position: Position) -> dict[str, object]:
         "tlvs": [{"tag": tlv.tag, "value_hex": tlv.value.hex()} for tlv in position.tlvs],
         "trailing_hex": position.extra_raw.hex(),
     }
+
+
+def _redacted_raw_frame(frame: JT808Frame) -> tuple[bytes, bytes | None, int | None, bytes | None]:
+    if frame.header.message_id not in SENSITIVE_RAW_MESSAGE_IDS:
+        return frame.raw_frame, frame.body, None, None
+    body_hash = hashlib.sha256(frame.body).digest()
+    return (
+        encode_frame(frame.header.message_id, frame.header.terminal_id, frame.header.serial, b""),
+        b"",
+        len(frame.body),
+        body_hash,
+    )
 
 
 class PostgresIngestionStore(DeviceRepository):
@@ -91,6 +107,7 @@ class PostgresIngestionStore(DeviceRepository):
         vehicle_id = UUID(device.vehicle_id)
         received_at = received_at.astimezone(UTC)
         frame_hash = hashlib.sha256(device.terminal_id.encode("ascii") + frame.raw_frame).hexdigest()
+        stored_raw_frame, stored_body, redacted_body_length, redacted_body_hash = _redacted_raw_frame(frame)
         inserted_positions = 0
         position_payload: list[dict[str, object]] = []
 
@@ -102,8 +119,10 @@ class PostgresIngestionStore(DeviceRepository):
                     received_at=received_at,
                     message_id=frame.header.message_id,
                     terminal_serial=frame.header.serial,
-                    raw_frame=frame.raw_frame,
-                    body=frame.body,
+                    raw_frame=stored_raw_frame,
+                    body=stored_body,
+                    redacted_body_length=redacted_body_length,
+                    redacted_body_hash=redacted_body_hash,
                     authenticated=authenticated,
                     parser_status=parser_status,
                     created_at=received_at,
@@ -226,3 +245,70 @@ class PostgresIngestionStore(DeviceRepository):
                     {"now": now},
                 )
                 return result.rowcount
+
+    async def maintain_partitions(
+        self, *, now: datetime | None = None, months_ahead: int = 3
+    ) -> dict[str, int]:
+        """Create future monthly partitions, report default-partition rows, and prune positions."""
+
+        now = (now or datetime.now(UTC)).astimezone(UTC)
+        current = month_start(now)
+        created = 0
+        async with self.session_factory() as session:
+            async with session.begin():
+                for start in partition_month_starts(now=current, months_ahead=months_ahead):
+                    end = add_months(start, 1)
+                    name = f"positions_{start:%Y_%m}"
+                    result = await session.execute(
+                        text(
+                            f"""CREATE TABLE IF NOT EXISTS {name} PARTITION OF positions
+                            FOR VALUES FROM ('{start:%Y-%m-%d}') TO ('{end:%Y-%m-%d}')"""
+                        )
+                    )
+                    created += 1
+                    await session.execute(
+                        text(
+                            f"CREATE UNIQUE INDEX IF NOT EXISTS {name}_device_gps_time_uq "
+                            f"ON {name} (device_id, gps_timestamp)"
+                        )
+                    )
+                default_count = int(
+                    await session.scalar(text("SELECT count(*) FROM positions_default")) or 0
+                )
+                if default_count:
+                    logger.warning("positions_default_nonempty rows=%s", default_count)
+                deleted_positions = int(
+                    (
+                        await session.execute(
+                            text(
+                                """DELETE FROM positions AS position
+                                USING organizations AS org
+                                WHERE position.organization_id = org.id
+                                  AND position.gps_timestamp < (
+                                    CAST(:now AS timestamptz)
+                                    - (org.position_retention_months * INTERVAL '1 month')
+                                  )"""
+                            ),
+                            {"now": now},
+                        )
+                    ).rowcount
+                    or 0
+                )
+                processed_outbox = int(
+                    (
+                        await session.execute(
+                            text(
+                                "DELETE FROM outbox_events WHERE processed_at IS NOT NULL "
+                                "AND processed_at < CAST(:now AS timestamptz) - INTERVAL '30 days'"
+                            ),
+                            {"now": now},
+                        )
+                    ).rowcount
+                    or 0
+                )
+                return {
+                    "partitions_created": created,
+                    "default_rows": default_count,
+                    "positions_deleted": deleted_positions,
+                    "processed_outbox_deleted": processed_outbox,
+                }

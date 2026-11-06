@@ -76,3 +76,28 @@ async def provision_postgres_device(
                 )
             )
             return str(device.id), auth_code
+
+
+async def rotate_postgres_device_secret(
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    terminal_id: str,
+    secret_protector: SecretProtector,
+    auth_code: str,
+    auth_pepper: bytes = b"",
+) -> None:
+    """Replace a device auth secret after a canary has validated the new code."""
+
+    terminal_id = validate_terminal_id(terminal_id)
+    auth_code = validate_auth_code(auth_code)
+    now = datetime.now(timezone.utc)
+    async with session_factory() as session:
+        async with session.begin():
+            device = await session.scalar(select(Device).where(Device.terminal_id == terminal_id))
+            if device is None:
+                raise ValueError("terminal ID is not provisioned")
+            device.auth_secret_hash = hash_auth_code(auth_code, auth_pepper)
+            device.auth_secret_ciphertext = secret_protector.encrypt(
+                auth_code, associated_data=terminal_id.encode("ascii")
+            )
+            device.secret_rotated_at = now

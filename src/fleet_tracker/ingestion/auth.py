@@ -164,6 +164,10 @@ class DeviceAuthenticator:
         )
         return device, validate_auth_code(code)
 
+    async def lookup(self, terminal_id: str) -> DeviceRecord | None:
+        device = await self.repository.get_device(terminal_id)
+        return device if device is not None and device.active else None
+
     async def authenticate(self, terminal_id: str, auth_code: str) -> DeviceRecord | None:
         device = await self.repository.get_device(terminal_id)
         if device is None or not device.active:

@@ -26,6 +26,8 @@ async def run() -> None:
         while True:
             deleted = await store.purge_expired_raw_messages()
             logger.info("raw_message_retention deleted=%s", deleted)
+            maintenance = await store.maintain_partitions()
+            logger.info("partition_maintenance %s", maintenance)
             await asyncio.sleep(3600)
     finally:
         await engine.dispose()

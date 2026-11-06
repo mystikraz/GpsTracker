@@ -10,7 +10,7 @@ from fleet_tracker.db.engine import create_engine_and_session_factory
 from fleet_tracker.db.ingestion_store import PostgresIngestionStore
 
 from .auth import AesGcmSecretProtector, DeviceAuthenticator
-from .processor import MessageProcessor
+from .processor import AuthenticatedConnectionRegistry, MessageProcessor
 from .transport import ConnectionLimiter, serve_client
 
 
@@ -27,7 +27,13 @@ async def run() -> None:
         protector,
         auth_pepper=settings.device_auth_pepper,
     )
-    processor = MessageProcessor(DeviceAuthenticator(store, protector, pepper=settings.device_auth_pepper), store)
+    processor = MessageProcessor(
+        DeviceAuthenticator(store, protector, pepper=settings.device_auth_pepper),
+        store,
+        connection_registry=AuthenticatedConnectionRegistry(
+            idle_seconds=settings.authenticated_connection_idle_seconds
+        ),
+    )
     limiter = ConnectionLimiter(
         max_connections=settings.max_connections,
         max_connections_per_ip=settings.max_connections_per_ip,

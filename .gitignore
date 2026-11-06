@@ -7,3 +7,6 @@ __pycache__/
 .env.*
 !.env.example
 *.db
+
+.local/
+real-captures/

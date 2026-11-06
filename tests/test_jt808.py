@@ -33,8 +33,8 @@ class JT808FixtureTests(unittest.TestCase):
             with self.subTest(frame_hex=frame_hex):
                 frame = decode_frame(bytes.fromhex(frame_hex))
                 self.assertEqual(frame.header.message_id, 0x0102)
-                self.assertEqual(frame.header.terminal_id, "071604184647")
-                self.assertEqual(frame.body, b"71604184647")
+                self.assertEqual(frame.header.terminal_id, "999900001234")
+                self.assertEqual(frame.body, b"58392017406")
 
     def test_registration_decodes_with_body_and_header(self) -> None:
         frame = decode_frame(bytes.fromhex(BY_NAME["registration"]["frame_hex"]))
@@ -42,7 +42,7 @@ class JT808FixtureTests(unittest.TestCase):
         self.assertEqual(frame.header.serial, 29)
         self.assertEqual(frame.header.body_length, len(frame.body))
         self.assertEqual(frame.header.body_length, 46)
-        self.assertEqual(frame.header.terminal_id, "071604184647")
+        self.assertEqual(frame.header.terminal_id, "999900001234")
 
     def test_position_fixtures_match_expected(self) -> None:
         for name in ("position_no_fix", "position_fix_serial12", "position_fix_serial20", "position_fix_serial21"):
@@ -124,12 +124,12 @@ class JT808FixtureTests(unittest.TestCase):
         self.assertIsInstance(parser.errors[-1], JT808Error)
 
     def test_response_builders_round_trip(self) -> None:
-        registration = encode_registration_response("071604184647", 1, 29, "12345678901")
+        registration = encode_registration_response("999900001234", 1, 29, "12345678901")
         registration_frame = decode_frame(registration)
         self.assertEqual(registration_frame.header.message_id, REGISTRATION_RESPONSE_MESSAGE_ID)
         self.assertEqual(registration_frame.body, b"\x00\x1d\x00" + b"12345678901")
 
-        general = encode_general_response("071604184647", 2, 36, 0x0002)
+        general = encode_general_response("999900001234", 2, 36, 0x0002)
         general_frame = decode_frame(general)
         self.assertEqual(general_frame.header.message_id, GENERAL_RESPONSE_MESSAGE_ID)
         self.assertEqual(general_frame.body, b"\x00$\x00\x02\x00")

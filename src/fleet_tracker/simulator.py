@@ -97,7 +97,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="fleet-tracker-replay")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8881)
-    parser.add_argument("--terminal-id", default="071604184647")
+    parser.add_argument("--terminal-id", default="999900001234")
     parser.add_argument("--fixture", type=Path, default=FIXTURE_PATH)
     parser.add_argument("--chunk-size", type=int, default=17)
     parser.add_argument("--reconnect", action="store_true")

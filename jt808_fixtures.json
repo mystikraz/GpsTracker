@@ -1,102 +1,102 @@
 {
-  "about": "Real JT/T 808 traffic from a PG07 tracker (terminal id 071604184647). Tracker clock is UTC+8; 'utc' fields are converted. See README.md.",
+  "about": "Synthetic JT/T 808 fixture set derived from a PG07 capture (terminal id 999900001234).",
   "captured_auth_frames_exact": [
-    "7e0102000b07160418464700013731363034313834363437397e",
-    "7e0102000b071604184647000237313630343138343634373a7e",
-    "7e0102000b071604184647000337313630343138343634373b7e",
-    "7e0102000b071604184647000437313630343138343634373c7e",
-    "7e0102000b071604184647000537313630343138343634373d7e",
-    "7e0102000b071604184647000637313630343138343634373e7e",
-    "7e0102000b071604184647000737313630343138343634373f7e",
-    "7e0102000b07160418464700083731363034313834363437307e"
+    "7e0102000b999900001234000135383339323031373430361e7e",
+    "7e0102000b999900001234000235383339323031373430361d7e",
+    "7e0102000b999900001234000335383339323031373430361c7e",
+    "7e0102000b999900001234000435383339323031373430361b7e",
+    "7e0102000b999900001234000535383339323031373430361a7e",
+    "7e0102000b99990000123400063538333932303137343036197e",
+    "7e0102000b99990000123400073538333932303137343036187e",
+    "7e0102000b99990000123400083538333932303137343036177e"
   ],
   "fixtures": [
     {
       "name": "registration",
       "msg_id": "0x0100",
-      "terminal_id": "071604184647",
+      "terminal_id": "999900001234",
       "serial": 29,
       "body_hex": "2c000300515800000051585f545241434b4552000000000000000000003734373236393900ffd4c1423838383838",
-      "frame_hex": "7e0100002e071604184647001d2c000300515800000051585f545241434b4552000000000000000000003734373236393900ffd4c1423838383838b67e",
+      "frame_hex": "7e0100002e999900001234001d2c000300515800000051585f545241434b4552000000000000000000003734373236393900ffd4c14238383838389c7e",
       "frame_has_escape_sequence": false,
-      "source": "reconstructed: body captured from device, header and checksum rebuilt",
+      "source": "reconstructed: body synthetic derivation from device, header and checksum rebuilt",
       "description": "Terminal registration. Server must answer 0x8100 echoing the serial, result 0 and an auth code."
     },
     {
       "name": "auth_serial1_captured",
       "msg_id": "0x0102",
-      "terminal_id": "071604184647",
+      "terminal_id": "999900001234",
       "serial": 1,
       "body_hex": "3731363034313834363437",
-      "frame_hex": "7e0102000b07160418464700013731363034313834363437397e",
+      "frame_hex": "7e0102000b999900001234000135383339323031373430361e7e",
       "frame_has_escape_sequence": false,
-      "source": "captured_exact",
-      "description": "Terminal authentication; auth code is ASCII '71604184647'."
+      "source": "synthetic derivation_exact",
+      "description": "Terminal authentication; auth code is ASCII '58392017406'."
     },
     {
       "name": "heartbeat",
       "msg_id": "0x0002",
-      "terminal_id": "071604184647",
+      "terminal_id": "999900001234",
       "serial": 36,
       "body_hex": "",
-      "frame_hex": "7e0002000007160418464700242a7e",
+      "frame_hex": "7e000200009999000012340024007e",
       "frame_has_escape_sequence": false,
-      "source": "reconstructed: body captured from device, header and checksum rebuilt",
+      "source": "reconstructed: body synthetic derivation from device, header and checksum rebuilt",
       "description": "Heartbeat, empty body. Answer 0x8001."
     },
     {
       "name": "vendor_1007",
       "msg_id": "0x1007",
-      "terminal_id": "071604184647",
+      "terminal_id": "999900001234",
       "serial": 31,
       "body_hex": "40000000",
-      "frame_hex": "7e10070004071604184647001f40000000407e",
+      "frame_hex": "7e10070004999900001234001f400000006a7e",
       "frame_has_escape_sequence": false,
-      "source": "reconstructed: body captured from device, header and checksum rebuilt",
+      "source": "reconstructed: body synthetic derivation from device, header and checksum rebuilt",
       "description": "Vendor message. Acknowledge with 0x8001 and store raw."
     },
     {
       "name": "vendor_0109_empty",
       "msg_id": "0x0109",
-      "terminal_id": "071604184647",
+      "terminal_id": "999900001234",
       "serial": 32,
       "body_hex": "",
-      "frame_hex": "7e010900000716041846470020247e",
+      "frame_hex": "7e0109000099990000123400200e7e",
       "frame_has_escape_sequence": false,
-      "source": "reconstructed: body captured from device, header and checksum rebuilt",
+      "source": "reconstructed: body synthetic derivation from device, header and checksum rebuilt",
       "description": "Vendor message, empty body."
     },
     {
       "name": "vendor_1107_info",
       "msg_id": "0x1107",
-      "terminal_id": "071604184647",
+      "terminal_id": "999900001234",
       "serial": 33,
       "body_hex": "14383939373730323236323932373639303035334608504730375f485f340c5047303747585f56312e3035",
-      "frame_hex": "7e1107002b071604184647002114383939373730323236323932373639303035334608504730375f485f340c5047303747585f56312e30350f7e",
+      "frame_hex": "7e1107002b999900001234002114383930303030303030303030303030303030304608504730375f485f340c5047303747585f56312e30352d7e",
       "frame_has_escape_sequence": false,
-      "source": "reconstructed: body captured from device, header and checksum rebuilt",
+      "source": "reconstructed: body synthetic derivation from device, header and checksum rebuilt",
       "description": "Vendor device info: contains SIM ICCID and firmware strings PG07_H_4 / PG07GX_V1.05."
     },
     {
       "name": "vendor_0112",
       "msg_id": "0x0112",
-      "terminal_id": "071604184647",
+      "terminal_id": "999900001234",
       "serial": 34,
       "body_hex": "010000000000",
-      "frame_hex": "7e0112000607160418464700220100000000003a7e",
+      "frame_hex": "7e011200069999000012340022010000000000107e",
       "frame_has_escape_sequence": false,
-      "source": "reconstructed: body captured from device, header and checksum rebuilt",
+      "source": "reconstructed: body synthetic derivation from device, header and checksum rebuilt",
       "description": "Vendor message."
     },
     {
       "name": "position_no_fix",
       "msg_id": "0x0200",
-      "terminal_id": "071604184647",
+      "terminal_id": "999900001234",
       "serial": 2,
       "body_hex": "00000080000c000c000000000000000000000000000026110614385030011e310100e10c01ad0002009cb40dd12507cbe4020153ec23b41d62c49a99bbbe1d62e09ed5bbc448faad00b1b14033064956efc2e01f2b081d4abff0020055f50101f6080868017077472699b2143839393737303232363239323736393030353346",
-      "frame_hex": "7e02000080071604184647000200000080000c000c000000000000000000000000000026110614385030011e310100e10c01ad0002009cb40dd12507cbe4020153ec23b41d62c49a99bbbe1d62e09ed5bbc448faad00b1b14033064956efc2e01f2b081d4abff0020055f50101f6080868017077472699b21438393937373032323632393237363930303533465e7e",
+      "frame_hex": "7e02000080999900001234000200000080000c000c000000000000000000000000000026110614385030011e310100e10c01ad0002009cb40dd12507cbe4020153ec23b41d62c49a99bbbe1d62e09ed5bbc448faad00b1b14033064956efc2e01f2b081d4abff0020055f50101f6080868017077472699b21438393030303030303030303030303030303030467c7e",
       "frame_has_escape_sequence": false,
-      "source": "reconstructed: body captured from device, header and checksum rebuilt",
+      "source": "reconstructed: body synthetic derivation from device, header and checksum rebuilt",
       "description": "Position without GPS fix (status bit1 = 0). Must NOT be stored as a position.",
       "expected": {
         "positions": [
@@ -115,12 +115,12 @@
     {
       "name": "position_fix_serial12",
       "msg_id": "0x0200",
-      "terminal_id": "071604184647",
+      "terminal_id": "999900001234",
       "serial": 12,
       "body_hex": "00000080000c000201a6746605160b5605300000007e26110614390530011f310110e10c01ad0002009cb40dd12507cce4020153ec23be1d62e09ed5bb70a56a5d8f2cacc448faad00b1b24033064956efc1e01f2b081d4ac0f0020055f50101",
-      "frame_hex": "7e02000060071604184647000c00000080000c000201a6746605160b5605300000007d0226110614390530011f310110e10c01ad0002009cb40dd12507cce4020153ec23be1d62e09ed5bb70a56a5d8f2cacc448faad00b1b24033064956efc1e01f2b081d4ac0f0020055f50101d07e",
+      "frame_hex": "7e02000060999900001234000c00000080000c000201a6746605160b5605300000007d0226110614390530011f310110e10c01ad0002009cb40dd12507cce4020153ec23be1d62e09ed5bb70a56a5d8f2cacc448faad00b1b24033064956efc1e01f2b081d4ac0f0020055f50101fa7e",
       "frame_has_escape_sequence": true,
-      "source": "reconstructed: body captured from device, header and checksum rebuilt",
+      "source": "reconstructed: body synthetic derivation from device, header and checksum rebuilt",
       "description": "Live position with fix. The course field is 0x007e, so the frame contains an escaped 0x7d02 sequence (tests unescaping).",
       "expected": {
         "positions": [
@@ -139,12 +139,12 @@
     {
       "name": "position_fix_serial20",
       "msg_id": "0x0200",
-      "terminal_id": "071604184647",
+      "terminal_id": "999900001234",
       "serial": 20,
       "body_hex": "00000080000c000201a6743d05160b8005290000007e26110614394930011e310112e11c01ad0002009cb40dd12507cd009cb40dd12500ca009cb40dd12517b9e4020153f002005cf50101",
-      "frame_hex": "7e0200004b071604184647001400000080000c000201a6743d05160b8005290000007d0226110614394930011e310112e11c01ad0002009cb40dd12507cd009cb40dd12500ca009cb40dd12517b9e4020153f002005cf50101607e",
+      "frame_hex": "7e0200004b999900001234001400000080000c000201a6743d05160b8005290000007d0226110614394930011e310112e11c01ad0002009cb40dd12507cd009cb40dd12500ca009cb40dd12517b9e4020153f002005cf501014a7e",
       "frame_has_escape_sequence": true,
-      "source": "reconstructed: body captured from device, header and checksum rebuilt",
+      "source": "reconstructed: body synthetic derivation from device, header and checksum rebuilt",
       "description": "Live position with fix. The course field is 0x007e, so the frame contains an escaped 0x7d02 sequence (tests unescaping).",
       "expected": {
         "positions": [
@@ -163,12 +163,12 @@
     {
       "name": "position_fix_serial21",
       "msg_id": "0x0200",
-      "terminal_id": "071604184647",
+      "terminal_id": "999900001234",
       "serial": 21,
       "body_hex": "00000080000c000201a6743705160b8805280000007e26110614400430011e310111e11c01ad0002009cb40dd12507cd009cb40dd12500cb009cb40dd12517b8e4020153f0020055f50101",
-      "frame_hex": "7e0200004b071604184647001500000080000c000201a6743705160b8805280000007d0226110614400430011e310111e11c01ad0002009cb40dd12507cd009cb40dd12500cb009cb40dd12517b8e4020153f0020055f501015c7e",
+      "frame_hex": "7e0200004b999900001234001500000080000c000201a6743705160b8805280000007d0226110614400430011e310111e11c01ad0002009cb40dd12507cd009cb40dd12500cb009cb40dd12517b8e4020153f0020055f50101767e",
       "frame_has_escape_sequence": true,
-      "source": "reconstructed: body captured from device, header and checksum rebuilt",
+      "source": "reconstructed: body synthetic derivation from device, header and checksum rebuilt",
       "description": "Live position with fix. The course field is 0x007e, so the frame contains an escaped 0x7d02 sequence (tests unescaping).",
       "expected": {
         "positions": [
@@ -187,12 +187,12 @@
     {
       "name": "batch_0704_serial3",
       "msg_id": "0x0704",
-      "terminal_id": "071604184647",
+      "terminal_id": "999900001234",
       "serial": 3,
       "body_hex": "000401007000000080000c000201a6731e05160be1050b000000cf26110614202730011c310109e11c01ad0002009cb40dd12507c8009cb40dd12500c7009cb40dd12517b4e4020153ec23be1d62e09ed5b3e01f2b081d4abd4033064956efc64233064956efc6c648facd00b1abf0020055f50101004b00000080000c000201a673b105160c090515000000cf26110614203730011c31010de11c01ad0002009cb40dd12507c6009cb40dd12500c7009cb40dd12517b4e4020154f0020055f50101004b00000080000c000201a673b205160c090514000000cf26110614204230011c31010fe11c01ad0002009cb40dd12507c7009cb40dd12500c7009cb40dd12517b4e4020154f0020055f50101004b00000080000c000201a673b405160c070514000000cf26110614204730011c310110e11c01ad0002009cb40dd12507c7009cb40dd12500c7009cb40dd12517b4e4020154f0020055f50101",
-      "frame_hex": "7e0704015c0716041846470003000401007000000080000c000201a6731e05160be1050b000000cf26110614202730011c310109e11c01ad0002009cb40dd12507c8009cb40dd12500c7009cb40dd12517b4e4020153ec23be1d62e09ed5b3e01f2b081d4abd4033064956efc64233064956efc6c648facd00b1abf0020055f50101004b00000080000c000201a673b105160c090515000000cf26110614203730011c31010de11c01ad0002009cb40dd12507c6009cb40dd12500c7009cb40dd12517b4e4020154f0020055f50101004b00000080000c000201a673b205160c090514000000cf26110614204230011c31010fe11c01ad0002009cb40dd12507c7009cb40dd12500c7009cb40dd12517b4e4020154f0020055f50101004b00000080000c000201a673b405160c070514000000cf26110614204730011c310110e11c01ad0002009cb40dd12507c7009cb40dd12500c7009cb40dd12517b4e4020154f0020055f50101bf7e",
+      "frame_hex": "7e0704015c9999000012340003000401007000000080000c000201a6731e05160be1050b000000cf26110614202730011c310109e11c01ad0002009cb40dd12507c8009cb40dd12500c7009cb40dd12517b4e4020153ec23be1d62e09ed5b3e01f2b081d4abd4033064956efc64233064956efc6c648facd00b1abf0020055f50101004b00000080000c000201a673b105160c090515000000cf26110614203730011c31010de11c01ad0002009cb40dd12507c6009cb40dd12500c7009cb40dd12517b4e4020154f0020055f50101004b00000080000c000201a673b205160c090514000000cf26110614204230011c31010fe11c01ad0002009cb40dd12507c7009cb40dd12500c7009cb40dd12517b4e4020154f0020055f50101004b00000080000c000201a673b405160c070514000000cf26110614204730011c310110e11c01ad0002009cb40dd12507c7009cb40dd12500c7009cb40dd12517b4e4020154f0020055f50101957e",
       "frame_has_escape_sequence": false,
-      "source": "reconstructed: body captured from device, header and checksum rebuilt",
+      "source": "reconstructed: body synthetic derivation from device, header and checksum rebuilt",
       "description": "Batch of 4 buffered positions (type byte 1). Items are length(2)+0x0200 body. Each must be deduplicated by (device, GPS time).",
       "expected": {
         "count": 4,
@@ -239,12 +239,12 @@
     {
       "name": "batch_0704_serial13",
       "msg_id": "0x0704",
-      "terminal_id": "071604184647",
+      "terminal_id": "999900001234",
       "serial": 13,
       "body_hex": "000401004b00000080000c000201a665490516003eff110000012d26110614243430011d310109e11c01ad0002009cb40dd12507cb009cb40dd12500ca009cb40dd12517b9e4020153f0020055f50101004b00000080000c000201a6654e0516003eff150000012d26110614245030011d310108e11c01ad0002009cb40dd12507ca009cb40dd12500ca009cb40dd12517b9e4020154f0020055f50101004b00000080000c000201a665540516003aff190000012d26110614250430011d31010ae11c01ad0002009cb40dd12507cb009cb40dd12500ca009cb40dd12517b9e4020153f0020055f50101004b00000080000c000201a6655c05160051ff1d0000012d26110614251930011e31010ae11c01ad0002009cb40dd12507c9009cb40dd12500ca009cb40dd12517bae4020153f0020055f50101",
-      "frame_hex": "7e07040137071604184647000d000401004b00000080000c000201a665490516003eff110000012d26110614243430011d310109e11c01ad0002009cb40dd12507cb009cb40dd12500ca009cb40dd12517b9e4020153f0020055f50101004b00000080000c000201a6654e0516003eff150000012d26110614245030011d310108e11c01ad0002009cb40dd12507ca009cb40dd12500ca009cb40dd12517b9e4020154f0020055f50101004b00000080000c000201a665540516003aff190000012d26110614250430011d31010ae11c01ad0002009cb40dd12507cb009cb40dd12500ca009cb40dd12517b9e4020153f0020055f50101004b00000080000c000201a6655c05160051ff1d0000012d26110614251930011e31010ae11c01ad0002009cb40dd12507c9009cb40dd12500ca009cb40dd12517bae4020153f0020055f50101297e",
+      "frame_hex": "7e07040137999900001234000d000401004b00000080000c000201a665490516003eff110000012d26110614243430011d310109e11c01ad0002009cb40dd12507cb009cb40dd12500ca009cb40dd12517b9e4020153f0020055f50101004b00000080000c000201a6654e0516003eff150000012d26110614245030011d310108e11c01ad0002009cb40dd12507ca009cb40dd12500ca009cb40dd12517b9e4020154f0020055f50101004b00000080000c000201a665540516003aff190000012d26110614250430011d31010ae11c01ad0002009cb40dd12507cb009cb40dd12500ca009cb40dd12517b9e4020153f0020055f50101004b00000080000c000201a6655c05160051ff1d0000012d26110614251930011e31010ae11c01ad0002009cb40dd12507c9009cb40dd12500ca009cb40dd12517bae4020153f0020055f50101037e",
       "frame_has_escape_sequence": false,
-      "source": "reconstructed: body captured from device, header and checksum rebuilt",
+      "source": "reconstructed: body synthetic derivation from device, header and checksum rebuilt",
       "description": "Batch of 4 buffered positions (type byte 1). Items are length(2)+0x0200 body. Each must be deduplicated by (device, GPS time).",
       "expected": {
         "count": 4,
@@ -292,32 +292,32 @@
   "negative_fixtures": [
     {
       "name": "bad_checksum",
-      "frame_hex": "7e0102000b07160418464700013731363034313834363437c67e",
+      "frame_hex": "7e0102000b99990000123400013538333932303137343036e17e",
       "expect": "reject frame (checksum mismatch); do not authenticate"
     },
     {
       "name": "truncated_no_end_flag",
-      "frame_hex": "7e0102000b0716041846470001373136303431383436343739",
+      "frame_hex": "7e0102000b999900001234000135383339323031373430361e",
       "expect": "incomplete: keep buffering until the end flag, drop if buffer limit exceeded"
     },
     {
       "name": "bad_escape_7d03",
-      "frame_hex": "7e0102000b7d0307160418464700013731363034313834363437397e",
+      "frame_hex": "7e02000060999900001234000c00000080000c000201a6746605160b5605300000007d0326110614390530011f310110e10c01ad0002009cb40dd12507cce4020153ec23be1d62e09ed5bb70a56a5d8f2cacc448faad00b1b24033064956efc1e01f2b081d4ac0f0020055f50101fa7e",
       "expect": "reject frame (invalid escape sequence)"
     },
     {
       "name": "body_length_mismatch",
-      "frame_hex": "7e0102000c07160418464700013731363034313834363437397e",
+      "frame_hex": "7e0102000c999900001234000135383339323031373430361e7e",
       "expect": "reject frame (declared body length != actual)"
     },
     {
       "name": "two_frames_in_one_read",
-      "frame_hex": "7e0102000b07160418464700013731363034313834363437397e7e0102000b07160418464700013731363034313834363437397e",
+      "frame_hex": "7e0102000b999900001234000135383339323031373430361e7e7e0102000b999900001234000135383339323031373430361e7e",
       "expect": "decode two separate frames"
     },
     {
       "name": "noise_before_frame",
-      "frame_hex": "00ff107e0102000b07160418464700013731363034313834363437397e",
+      "frame_hex": "00ff107e0102000b999900001234000135383339323031373430361e7e",
       "expect": "skip garbage, decode the frame"
     }
   ]

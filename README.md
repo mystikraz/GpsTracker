@@ -1,6 +1,6 @@
 # JT/T 808 fixtures (PG07 tracker)
 
-`jt808_fixtures.json` holds real traffic captured from a PG07 4G tracker, plus a few derived negative cases.
+`jt808_fixtures.json` holds synthetic JT/T 808 fixtures derived from a PG07 4G capture, plus derived negative cases. The original capture is kept only in the gitignored `.local/captures/` folder.
 
 ## Provenance
 - `captured_auth_frames_exact`: 8 complete frames exactly as received (auth, serials 1-8).
@@ -99,7 +99,7 @@ device before sending it any tracker traffic:
 ```text
 docker compose run --rm ingestion fleet-tracker create-organization --name "Example Fleet"
 docker compose run --rm ingestion fleet-tracker create-vehicle --org-id <org-id> --name "Vehicle 1"
-docker compose run --rm ingestion fleet-tracker provision-device --org-id <org-id> --vehicle-id <vehicle-id> --terminal-id 071604184647
+docker compose run --rm ingestion fleet-tracker provision-device --org-id <org-id> --vehicle-id <vehicle-id> --terminal-id 999900001234
 ```
 
 The generated code is stored encrypted for future `0x0100` responses and
@@ -119,7 +119,7 @@ the new service until the device record and vehicle assignment exist.
    configure both services to receive the same device simultaneously unless an
    explicit fan-out test has been designed.
 3. Provision the existing terminal with its currently stored code
-   `71604184647`, because this device reconnects with `0x0102` and does not
+   `58392017406`, because this device reconnects with `0x0102` and does not
    receive a new `0x8100` response on every reconnect. Treat this as a
    time-bounded migration secret, not the production default.
 4. Send `SL DP<ip>#8882#` by SMS. Confirm the new service accepts the direct
@@ -138,6 +138,12 @@ Validating whether the physical PG07 accepts that code requires a controlled
 keep the observed code strategy for that device until the hardware behavior is
 understood. Raw JT/T 808 has no TLS or VPN on this hardware; that residual
 confidentiality and replay risk is documented and is not a P1 blocker.
+
+For the temporary-port cutover, SMS endpoint change, verification, and rollback
+procedure, see `docs/CUTOVER_RUNBOOK.md`. For a provisioned device with a wrong
+auth code, the service returns a JT/T 808 `0x8001` failure and closes the
+connection. The real PG07's next retry behavior has not been observed on
+hardware and must be recorded during the canary.
 
 ## Known fixture limits
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from time import monotonic
@@ -10,6 +11,8 @@ from time import monotonic
 from fleet_tracker.protocol.jt808 import FrameStreamParser, FrameTooLarge
 
 from .processor import ConnectionState, MessageProcessor
+
+logger = logging.getLogger("fleet_tracker.transport")
 
 
 @dataclass(slots=True)
@@ -83,6 +86,12 @@ async def serve_client(
 
     parser = FrameStreamParser(max_frame_size=max_frame_size, max_buffer_size=max_buffer_size)
     state = ConnectionState()
+
+    async def close_replaced_connection() -> None:
+        writer.close()
+        await writer.wait_closed()
+
+    state.close_callback = close_replaced_connection
     try:
         while True:
             try:
@@ -96,7 +105,27 @@ async def serve_client(
             except FrameTooLarge:
                 break
             for frame in frames:
-                result = await processor.process(frame, state)
+                try:
+                    result = await processor.process(frame, state, source_ip=ip)
+                except Exception:
+                    # Persistence is the commit point. Do not emit an ACK when it fails.
+                    logger.error(
+                        "message_persistence_failed source_ip=%s terminal_id=%s message_id=0x%04x",
+                        ip,
+                        frame.header.terminal_id,
+                        frame.header.message_id,
+                    )
+                    return
+                if result.accepted:
+                    logger.info(
+                        "ingestion_message_accepted source_ip=%s terminal_id=%s "
+                        "message_id=0x%04x parser_status=%s stored_positions=%s",
+                        ip,
+                        frame.header.terminal_id,
+                        frame.header.message_id,
+                        result.parser_status,
+                        result.stored_positions,
+                    )
                 for response in result.responses:
                     writer.write(response)
                 if result.responses:
@@ -104,6 +133,8 @@ async def serve_client(
                 if result.close_connection:
                     return
     finally:
+        if processor.connection_registry is not None:
+            processor.connection_registry.release(state)
         if limiter is not None:
             await limiter.release(ip)
         writer.close()

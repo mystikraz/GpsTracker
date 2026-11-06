@@ -14,7 +14,7 @@ from fleet_tracker.protocol.jt808 import FrameStreamParser, decode_frame
 
 FIXTURES = json.loads((Path(__file__).parents[1] / "jt808_fixtures.json").read_text())
 BY_NAME = {fixture["name"]: fixture for fixture in FIXTURES["fixtures"]}
-DEVICE = "071604184647"
+DEVICE = "999900001234"
 
 
 async def read_frame(reader: asyncio.StreamReader) -> object:
@@ -51,7 +51,7 @@ class SimulatedTrackerTests(unittest.TestCase):
             organization_id="org-1",
             vehicle_id="vehicle-1",
             secret_protector=PlaintextSecretProtector(),
-            auth_code="71604184647",
+            auth_code="58392017406",
         )
         processor = MessageProcessor(
             DeviceAuthenticator(store, PlaintextSecretProtector()),
