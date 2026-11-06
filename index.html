@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fleet map</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #17212b; --muted: #5d6b79; --line: #d5dce3; --panel: #ffffff; --bg: #eef1f4;
+    --moving: #1a7f4b; --idle: #c27a0e; --offline: #8a94a0; --sel: #1d4ed8;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { font: 15px/1.4 "IBM Plex Sans", system-ui, sans-serif; color: var(--ink); background: var(--bg); display: flex; }
+  aside { width: 330px; background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; z-index: 1000; }
+  header { padding: 16px 18px; border-bottom: 1px solid var(--line); }
+  h1 { font-size: 17px; margin: 0 0 2px; font-weight: 600; }
+  #summary { color: var(--muted); font-size: 13px; }
+  #list { overflow-y: auto; flex: 1; }
+  .dev { display: grid; grid-template-columns: 12px 1fr; gap: 0 12px; width: 100%; padding: 13px 18px; border: 0; border-bottom: 1px solid var(--line); background: none; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+  .dev:hover { background: #f5f7f9; }
+  .dev[aria-pressed="true"] { background: #eaf0fe; box-shadow: inset 3px 0 0 var(--sel); }
+  .dev:focus-visible { outline: 2px solid var(--sel); outline-offset: -2px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 6px; }
+  .name { font-weight: 600; }
+  .meta { color: var(--muted); font-size: 13px; }
+  #map { flex: 1; }
+  #empty { padding: 20px 18px; color: var(--muted); }
+  @media (max-width: 720px) {
+    body { flex-direction: column-reverse; }
+    aside { width: 100%; height: 42%; border-right: 0; border-top: 1px solid var(--line); }
+    #map { height: 58%; flex: none; }
+  }
+</style>
+</head>
+<body>
+<aside>
+  <header>
+    <h1>Vehicles</h1>
+    <div id="summary">Loading…</div>
+  </header>
+  <div id="list"></div>
+</aside>
+<div id="map"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script>
+const COLORS = { moving: '#1a7f4b', idle: '#c27a0e', offline: '#8a94a0' };
+const map = L.map('map').setView([27.7, 85.32], 12);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19, attribution: '© OpenStreetMap contributors'
+}).addTo(map);
+
+const markers = {};
+let selected = null, trackLine = null, fitted = false;
+
+function status(d) { return !d.online ? 'offline' : d.speed > 2 ? 'moving' : 'idle'; }
+
+function ago(iso) {
+  const s = Math.max(0, (Date.now() - new Date(iso)) / 1000);
+  if (s < 60) return 'just now';
+  if (s < 3600) return Math.round(s / 60) + ' min ago';
+  if (s < 86400) return Math.round(s / 3600) + ' h ago';
+  return new Date(iso).toLocaleDateString();
+}
+
+async function showTrack(id) {
+  const r = await fetch('/api/track?device=' + encodeURIComponent(id) + '&hours=24');
+  const pts = (await r.json()).map(p => [p[1], p[2]]);
+  if (trackLine) map.removeLayer(trackLine);
+  trackLine = pts.length > 1 ? L.polyline(pts, { color: '#1d4ed8', weight: 4, opacity: .75 }).addTo(map) : null;
+}
+
+function select(id, fly) {
+  selected = id;
+  const m = markers[id];
+  if (m && fly) map.flyTo(m.getLatLng(), Math.max(map.getZoom(), 16));
+  showTrack(id);
+  load();
+}
+
+async function load() {
+  let devs;
+  try { devs = await (await fetch('/api/devices')).json(); }
+  catch (e) { document.getElementById('summary').textContent = 'Cannot reach the server.'; return; }
+
+  const list = document.getElementById('list');
+  list.replaceChildren();
+  const counts = { moving: 0, idle: 0, offline: 0 };
+
+  if (!devs.length) {
+    const p = document.createElement('div');
+    p.id = 'empty';
+    p.textContent = 'No positions yet. Take the tracker outdoors and wait a minute for a GPS fix.';
+    list.append(p);
+  }
+
+  devs.forEach(d => {
+    const st = status(d); counts[st]++;
+    const color = COLORS[st];
+
+    if (!markers[d.id]) {
+      markers[d.id] = L.circleMarker([d.lat, d.lon], { radius: 9, weight: 3, color: '#fff', fillOpacity: 1 }).addTo(map);
+      markers[d.id].on('click', () => select(d.id, false));
+    }
+    markers[d.id].setLatLng([d.lat, d.lon]).setStyle({ fillColor: color });
+
+    const b = document.createElement('button');
+    b.className = 'dev';
+    b.setAttribute('aria-pressed', d.id === selected);
+    const dot = document.createElement('span'); dot.className = 'dot'; dot.style.background = color;
+    const txt = document.createElement('span');
+    const nm = document.createElement('div'); nm.className = 'name'; nm.textContent = 'Vehicle ' + d.id;
+    const mt = document.createElement('div'); mt.className = 'meta';
+    mt.textContent = (st === 'moving' ? Math.round(d.speed) + ' km/h' : st === 'idle' ? 'Stopped' : 'Offline') + ' · ' + ago(d.ts);
+    txt.append(nm, mt); b.append(dot, txt);
+    b.onclick = () => select(d.id, true);
+    list.append(b);
+  });
+
+  document.getElementById('summary').textContent =
+    devs.length ? `${counts.moving} moving, ${counts.idle} stopped, ${counts.offline} offline` : 'No vehicles yet';
+
+  if (!fitted && devs.length) {
+    fitted = true;
+    map.fitBounds(L.latLngBounds(devs.map(d => [d.lat, d.lon])).pad(0.3), { maxZoom: 16 });
+  }
+}
+
+load();
+setInterval(() => { load(); if (selected) showTrack(selected); }, 5000);
+</script>
+</body>
+</html>
