@@ -20,10 +20,14 @@ def _decode(value: str) -> bytes:
 
 
 def build_app():
-    settings = Settings.from_env()
-    database_url = os.environ.get("FLEET_API_DATABASE_URL", settings.database_url)
+    database_url = os.environ.get("FLEET_API_DATABASE_URL") or os.environ.get("DATABASE_URL")
     if not database_url:
         raise RuntimeError("FLEET_API_DATABASE_URL must be set")
+    # Settings is shared with the TCP/worker entrypoints and historically
+    # reads DATABASE_URL. Populate it internally from the API-specific value;
+    # callers do not need to expose a generic DATABASE_URL in .env.
+    os.environ.setdefault("DATABASE_URL", database_url)
+    settings = Settings.from_env()
     auth_pepper_value = os.environ.get("AUTH_PEPPER_B64")
     if not auth_pepper_value:
         raise RuntimeError("AUTH_PEPPER_B64 must be set")
