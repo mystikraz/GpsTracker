@@ -1,7 +1,10 @@
 services:
   migrate:
     build: .
-    env_file: .env
+    environment:
+      DIRECT_DATABASE_URL: "${DIRECT_DATABASE_URL:-}"
+      TEST_DATABASE_URL: "${TEST_DATABASE_URL:-}"
+      MIGRATION_CONFIRM_PRODUCTION: "${MIGRATION_CONFIRM_PRODUCTION:-}"
     command: ["sh", "-c", "for attempt in 1 2 3 4 5 6; do fleet-tracker migrate && exit 0; sleep 5; done; exit 1"]
     mem_limit: 256m
     read_only: true
@@ -10,9 +13,19 @@ services:
 
   ingestion:
     build: .
-    env_file: .env
     environment:
+      DATABASE_URL: "${FLEET_INGEST_DATABASE_URL:?FLEET_INGEST_DATABASE_URL must be set}"
+      DEVICE_SECRET_KEY_B64: "${DEVICE_SECRET_KEY_B64:?DEVICE_SECRET_KEY_B64 must be set}"
+      DEVICE_AUTH_PEPPER_B64: "${DEVICE_AUTH_PEPPER_B64:?DEVICE_AUTH_PEPPER_B64 must be set}"
       TRACKER_PORT: "${TRACKER_PORT:-8881}"
+      TRACKER_HOST: "${TRACKER_HOST:-0.0.0.0}"
+      FRAME_MAX_BYTES: "${FRAME_MAX_BYTES:-4096}"
+      FRAME_BUFFER_MAX_BYTES: "${FRAME_BUFFER_MAX_BYTES:-8192}"
+      IDLE_TIMEOUT_SECONDS: "${IDLE_TIMEOUT_SECONDS:-180}"
+      MAX_CONNECTIONS: "${MAX_CONNECTIONS:-256}"
+      MAX_CONNECTIONS_PER_IP: "${MAX_CONNECTIONS_PER_IP:-8}"
+      AUTH_ATTEMPTS_PER_MINUTE: "${AUTH_ATTEMPTS_PER_MINUTE:-20}"
+      AUTHENTICATED_CONNECTION_IDLE_SECONDS: "${AUTHENTICATED_CONNECTION_IDLE_SECONDS:-60}"
     command: ["python", "-m", "fleet_tracker.ingestion.server"]
     ports:
       - "${TRACKER_PORT:-8881}:${TRACKER_PORT:-8881}"
@@ -32,7 +45,10 @@ services:
 
   worker:
     build: .
-    env_file: .env
+    environment:
+      DATABASE_URL: "${FLEET_WORKER_DATABASE_URL:?FLEET_WORKER_DATABASE_URL must be set}"
+      DEVICE_SECRET_KEY_B64: "${DEVICE_SECRET_KEY_B64:?DEVICE_SECRET_KEY_B64 must be set}"
+      DEVICE_AUTH_PEPPER_B64: "${DEVICE_AUTH_PEPPER_B64:?DEVICE_AUTH_PEPPER_B64 must be set}"
     command: ["python", "-m", "fleet_tracker.worker"]
     depends_on:
       migrate:

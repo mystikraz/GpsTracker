@@ -84,10 +84,11 @@ Then run:
 docker compose up --build
 ```
 
-The Compose profile runs the migration against Neon, listens for trackers on
+Compose does not run migrations on `up`; run the explicit guarded migration
+command after reviewing the printed host and database. The stack listens for trackers on
 TCP 8881, and runs raw-message retention maintenance. There is intentionally
-no local database container. The HTTP API, web application, Caddy, and
-alert/trip consumers are added in later phases.
+no local database container. The HTTP API and web application are added in
+later phases.
 
 Use the direct URL for migrations, provisioning/admin CLI work, and future
 `pg_dump` backups. Runtime services must not depend on session state, `SET`, or

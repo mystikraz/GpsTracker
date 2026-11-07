@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy import or_, select, text, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from fleet_tracker.ingestion.auth import DeviceRecord, DeviceRepository, SecretProtector
@@ -16,6 +17,7 @@ from fleet_tracker.protocol.jt808 import AUTHENTICATION_MESSAGE_ID, REGISTRATION
 
 from .models import Device, DeviceVehicleAssignment, RawMessage
 from .partitions import add_months, month_start, partition_month_starts
+from .tenant import organization_transaction
 
 
 UTC = timezone.utc
@@ -59,36 +61,45 @@ class PostgresIngestionStore(DeviceRepository):
     async def get_device(self, terminal_id: str) -> DeviceRecord | None:
         now = datetime.now(UTC)
         async with self.session_factory() as session:
-            device = await session.scalar(
-                select(Device).where(Device.terminal_id == terminal_id, Device.active.is_(True))
-            )
-            if device is None:
-                return None
-            assignment = await session.scalar(
-                select(DeviceVehicleAssignment)
-                .where(
-                    DeviceVehicleAssignment.device_id == device.id,
-                    DeviceVehicleAssignment.organization_id == device.organization_id,
-                    DeviceVehicleAssignment.effective_from <= now,
-                    or_(
-                        DeviceVehicleAssignment.effective_to.is_(None),
-                        DeviceVehicleAssignment.effective_to > now,
-                    ),
+            async with session.begin():
+                await session.execute(
+                    text("SELECT set_config('app.device_terminal_id', :terminal_id, true)"),
+                    {"terminal_id": terminal_id},
                 )
-                .order_by(DeviceVehicleAssignment.effective_from.desc())
-                .limit(1)
-            )
-            if assignment is None:
-                return None
-            return DeviceRecord(
-                terminal_id=device.terminal_id,
-                organization_id=str(device.organization_id),
-                vehicle_id=str(assignment.vehicle_id),
-                auth_secret_hash=device.auth_secret_hash,
-                auth_secret_ciphertext=device.auth_secret_ciphertext,
-                database_id=str(device.id),
-                active=device.active,
-            )
+                device = await session.scalar(
+                    select(Device).where(Device.terminal_id == terminal_id, Device.active.is_(True))
+                )
+                if device is None:
+                    return None
+                await session.execute(
+                    text("SELECT set_config('app.organization_id', :organization_id, true)"),
+                    {"organization_id": str(device.organization_id)},
+                )
+                assignment = await session.scalar(
+                    select(DeviceVehicleAssignment)
+                    .where(
+                        DeviceVehicleAssignment.device_id == device.id,
+                        DeviceVehicleAssignment.organization_id == device.organization_id,
+                        DeviceVehicleAssignment.effective_from <= now,
+                        or_(
+                            DeviceVehicleAssignment.effective_to.is_(None),
+                            DeviceVehicleAssignment.effective_to > now,
+                        ),
+                    )
+                    .order_by(DeviceVehicleAssignment.effective_from.desc())
+                    .limit(1)
+                )
+                if assignment is None:
+                    return None
+                return DeviceRecord(
+                    terminal_id=device.terminal_id,
+                    organization_id=str(device.organization_id),
+                    vehicle_id=str(assignment.vehicle_id),
+                    auth_secret_hash=device.auth_secret_hash,
+                    auth_secret_ciphertext=device.auth_secret_ciphertext,
+                    database_id=str(device.id),
+                    active=device.active,
+                )
 
     async def record_message(
         self,
@@ -112,7 +123,7 @@ class PostgresIngestionStore(DeviceRepository):
         position_payload: list[dict[str, object]] = []
 
         async with self.session_factory() as session:
-            async with session.begin():
+            async with organization_transaction(session, organization_id):
                 raw_message = RawMessage(
                     organization_id=organization_id,
                     device_id=device_id,
@@ -127,12 +138,18 @@ class PostgresIngestionStore(DeviceRepository):
                     parser_status=parser_status,
                     created_at=received_at,
                 )
+                raw_message.id = int(
+                    await session.scalar(text("SELECT nextval('raw_messages_id_seq')"))
+                )
                 session.add(raw_message)
                 await session.flush()
 
                 for position in positions:
                     gps_timestamp = position.gps_timestamp.astimezone(UTC)
                     params = {
+                        "position_id": int(
+                            await session.scalar(text("SELECT nextval('positions_id_seq')"))
+                        ),
                         "gps_timestamp": gps_timestamp,
                         "organization_id": organization_id,
                         "device_id": device_id,
@@ -152,24 +169,23 @@ class PostgresIngestionStore(DeviceRepository):
                         text(
                             """
                             INSERT INTO positions (
-                                gps_timestamp, organization_id, device_id, vehicle_id,
+                                id, gps_timestamp, organization_id, device_id, vehicle_id,
                                 received_at, latitude, longitude, location, altitude_m,
                                 speed_kmh, course, alarm, status, extras, raw_message_id
                             ) VALUES (
-                                :gps_timestamp, :organization_id, :device_id, :vehicle_id,
+                                :position_id, :gps_timestamp, :organization_id, :device_id, :vehicle_id,
                                 :received_at, :latitude, :longitude,
                                 ST_SetSRID(ST_MakePoint(:longitude, :latitude), 4326)::geography,
                                 :altitude_m, :speed_kmh, :course, :alarm, :status,
                                 CAST(:extras AS jsonb), :raw_message_id
                             )
                             ON CONFLICT DO NOTHING
-                            RETURNING id
                             """
                         ),
                         params,
                     )
-                    inserted_id = result.scalar_one_or_none()
-                    if inserted_id is not None:
+                    if result.rowcount:
+                        inserted_id = params["position_id"]
                         inserted_positions += 1
                         position_payload.append(
                             {
@@ -182,14 +198,6 @@ class PostgresIngestionStore(DeviceRepository):
                             }
                         )
 
-                if authenticated:
-                    values: dict[str, object] = {"last_authenticated_message_at": received_at}
-                    if position_payload:
-                        values["last_position_at"] = max(
-                            datetime.fromisoformat(item["gps_timestamp"]) for item in position_payload
-                        )
-                    await session.execute(update(Device).where(Device.id == device_id).values(**values))
-
                 payload = {
                     "terminal_id": device.terminal_id,
                     "message_id": frame.header.message_id,
@@ -199,9 +207,11 @@ class PostgresIngestionStore(DeviceRepository):
                     "positions": position_payload,
                     "parser_status": parser_status,
                 }
-                await session.execute(
-                    text(
-                        """
+                try:
+                    async with session.begin_nested():
+                        await session.execute(
+                            text(
+                                """
                         INSERT INTO outbox_events (
                             organization_id, event_type, aggregate_type, aggregate_id,
                             idempotency_key, payload, created_at, available_at
@@ -210,18 +220,24 @@ class PostgresIngestionStore(DeviceRepository):
                             :aggregate_id, :idempotency_key, CAST(:payload AS jsonb),
                             :created_at, :available_at
                         )
-                        ON CONFLICT (idempotency_key) DO NOTHING
-                        """
-                    ),
-                    {
-                        "organization_id": organization_id,
-                        "aggregate_id": device.terminal_id,
-                        "idempotency_key": frame_hash,
-                        "payload": json.dumps(payload),
-                        "created_at": received_at,
-                        "available_at": received_at,
-                    },
-                )
+                                """
+                            ),
+                            {
+                                "organization_id": organization_id,
+                                "aggregate_id": device.terminal_id,
+                                "idempotency_key": frame_hash,
+                                "payload": json.dumps(payload),
+                                "created_at": received_at,
+                                "available_at": received_at,
+                            },
+                        )
+                except IntegrityError as error:
+                    constraint_name = getattr(error.orig, "constraint_name", None)
+                    if constraint_name not in {
+                        "uq_outbox_events_idempotency_key",
+                        "outbox_events_idempotency_key_key",
+                    } and "outbox_events_idempotency_key_key" not in str(error.orig):
+                        raise
         return inserted_positions
 
     async def purge_expired_raw_messages(self, *, now: datetime | None = None) -> int:
@@ -258,20 +274,11 @@ class PostgresIngestionStore(DeviceRepository):
             async with session.begin():
                 for start in partition_month_starts(now=current, months_ahead=months_ahead):
                     end = add_months(start, 1)
-                    name = f"positions_{start:%Y_%m}"
-                    result = await session.execute(
-                        text(
-                            f"""CREATE TABLE IF NOT EXISTS {name} PARTITION OF positions
-                            FOR VALUES FROM ('{start:%Y-%m-%d}') TO ('{end:%Y-%m-%d}')"""
-                        )
+                    await session.execute(
+                        text("SELECT fleet_create_position_partition(:start_date, :end_date)"),
+                        {"start_date": start.date(), "end_date": end.date()},
                     )
                     created += 1
-                    await session.execute(
-                        text(
-                            f"CREATE UNIQUE INDEX IF NOT EXISTS {name}_device_gps_time_uq "
-                            f"ON {name} (device_id, gps_timestamp)"
-                        )
-                    )
                 default_count = int(
                     await session.scalar(text("SELECT count(*) FROM positions_default")) or 0
                 )

@@ -8,10 +8,12 @@ COPY pyproject.toml alembic.ini ./
 COPY migrations ./migrations
 COPY src ./src
 
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir '.[test]'
 
 COPY tests ./tests
 COPY README.md jt808_fixtures.json ./
+COPY docs ./docs
+COPY scripts ./scripts
 
 RUN addgroup --system app && adduser --system --ingroup app app
 USER app

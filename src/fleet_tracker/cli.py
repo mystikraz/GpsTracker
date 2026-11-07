@@ -17,8 +17,10 @@ from sqlalchemy import select, text
 
 from fleet_tracker.db.engine import create_engine_and_session_factory
 from fleet_tracker.db.models import Organization, Vehicle
+from fleet_tracker.db.models import OrganizationMembership, User
 from fleet_tracker.db.provisioning import provision_postgres_device, rotate_postgres_device_secret
 from fleet_tracker.ingestion.auth import AesGcmSecretProtector
+from fleet_tracker.auth_security import PasswordService, PasswordPolicyError
 
 
 class SecretSafeArgumentParser(argparse.ArgumentParser):
@@ -72,6 +74,32 @@ async def _create_organization(args: argparse.Namespace) -> None:
                 session.add(organization)
                 await session.flush()
                 print(organization.id)
+    finally:
+        await engine.dispose()
+
+
+async def _bootstrap_owner(args: argparse.Namespace) -> None:
+    password = _read_secret("BOOTSTRAP_OWNER_PASSWORD", "Bootstrap owner password: ")
+    password_service = PasswordService()
+    try:
+        password_hash = await password_service.hash(password)
+    except PasswordPolicyError as error:
+        raise SystemExit("bootstrap owner password does not meet policy") from error
+    engine, sessions = create_engine_and_session_factory(_database_url(args))
+    try:
+        async with sessions() as session:
+            async with session.begin():
+                existing = await session.scalar(select(User.id).limit(1))
+                if existing is not None:
+                    raise SystemExit("bootstrap owner already exists")
+                now = datetime.now(timezone.utc)
+                user = User(email=args.email, password_hash=password_hash, created_at=now, updated_at=now, password_changed_at=now)
+                organization = Organization(name=args.name, timezone=args.timezone, position_retention_months=12, raw_retention_days=30, created_at=now)
+                session.add_all([user, organization])
+                await session.flush()
+                session.add(OrganizationMembership(organization_id=organization.id, user_id=user.id, role="owner", status="active", group_scope_mode="all", created_at=now))
+                print(f"owner_user_id={user.id}")
+                print(f"organization_id={organization.id}")
     finally:
         await engine.dispose()
 
@@ -158,6 +186,11 @@ def build_parser() -> argparse.ArgumentParser:
     organization.add_argument("--name", required=True)
     organization.add_argument("--timezone", default="Asia/Kathmandu")
 
+    bootstrap = subparsers.add_parser("bootstrap-owner", help="create the first owner; password comes from stdin or env")
+    bootstrap.add_argument("--email", required=True)
+    bootstrap.add_argument("--name", required=True)
+    bootstrap.add_argument("--timezone", default="Asia/Kathmandu")
+
     vehicle = subparsers.add_parser("create-vehicle")
     vehicle.add_argument("--org-id", required=True)
     vehicle.add_argument("--name", required=True)
@@ -190,6 +223,8 @@ def main() -> None:
     args = build_parser().parse_args()
     if args.command == "create-organization":
         asyncio.run(_create_organization(args))
+    elif args.command == "bootstrap-owner":
+        asyncio.run(_bootstrap_owner(args))
     elif args.command == "create-vehicle":
         asyncio.run(_create_vehicle(args))
     elif args.command == "provision-device":
