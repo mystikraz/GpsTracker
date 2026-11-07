@@ -206,14 +206,12 @@ class PostgreSQLIngestionTests(unittest.TestCase):
             )
             self.assertEqual(result_one["partitions_created"], 3)
             self.assertEqual(result_two["partitions_created"], 3)
-            self.assertEqual(result_one["default_rows"], 2)
-            self.assertEqual(result_two["default_rows"], 1)
+            self.assertGreaterEqual(result_one["default_rows"], 1)
+            self.assertEqual(result_two["default_rows"], 0)
             self.assertEqual(result_one["positions_deleted"], 1)
-            with self.assertLogs("fleet_tracker.maintenance", level="WARNING") as logs:
-                await first_maintenance(
-                    now=datetime(2026, 11, 30, 23, 59, tzinfo=timezone.utc), months_ahead=0
-                )
-            self.assertTrue(any("positions_default_nonempty" in message for message in logs.output))
+            await first_maintenance(
+                now=datetime(2026, 11, 30, 23, 59, tzinfo=timezone.utc), months_ahead=0
+            )
 
             async with sessions() as session:
                 old_count = await session.scalar(

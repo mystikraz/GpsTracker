@@ -83,6 +83,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON organizations, vehicles, devices,
     TO fleet_api;
 GRANT SELECT, INSERT, UPDATE ON users TO fleet_api;
 GRANT SELECT ON positions TO fleet_api;
+GRANT SELECT ON vehicle_latest_state TO fleet_api;
 GRANT INSERT, SELECT ON audit_events TO fleet_api;
 GRANT USAGE, SELECT ON SEQUENCE audit_events_id_seq TO fleet_api;
 GRANT EXECUTE ON FUNCTION fleet_delete_organization_data(uuid) TO fleet_api;

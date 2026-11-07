@@ -122,6 +122,18 @@ class P2RlsIntegrationTests(unittest.TestCase):
                     ("2099-01-01", "2099-02-01"),
                 )
 
+    @classmethod
+    def tearDownClass(cls) -> None:
+        # Keep telemetry fixtures from affecting the P1 maintenance assertions.
+        # Organizations remain because audit foreign keys are intentionally
+        # non-cascading and audit rows are append-only.
+        with psycopg.connect(SETUP_URL) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("DELETE FROM positions WHERE organization_id IN (%s, %s)", (cls.org_a, cls.org_b))
+                cursor.execute("DELETE FROM raw_messages WHERE organization_id IN (%s, %s)", (cls.org_a, cls.org_b))
+                cursor.execute("DELETE FROM outbox_events WHERE organization_id IN (%s, %s)", (cls.org_a, cls.org_b))
+
+
     def test_runtime_roles_cannot_bypass_rls(self) -> None:
         with psycopg.connect(API_URL) as connection:
             with connection.cursor() as cursor:
@@ -266,11 +278,12 @@ class P2RlsIntegrationTests(unittest.TestCase):
         async def run_ingest() -> int:
             owner_engine, owner_sessions = create_engine_and_session_factory(SETUP_URL)
             try:
+                test_terminal = "999900001235"
                 device_id, _ = await provision_postgres_device(
                     owner_sessions,
                     organization_id=str(self.org_a),
                     vehicle_id=str(self.vehicle_a),
-                    terminal_id="999900001234",
+                    terminal_id=test_terminal,
                     secret_protector=PlaintextSecretProtector(),
                     auth_code="12345678901",
                 )
@@ -286,11 +299,15 @@ class P2RlsIntegrationTests(unittest.TestCase):
                 )
                 state = ConnectionState()
                 received_at = datetime(2026, 11, 7, tzinfo=timezone.utc)
-                frames = (
+                decoded_frames = (
                     decode_frame(bytes.fromhex(BY_NAME["registration"]["frame_hex"])),
-                    decode_frame(encode_frame(AUTHENTICATION_MESSAGE_ID, "999900001234", 1, b"12345678901")),
+                    decode_frame(encode_frame(AUTHENTICATION_MESSAGE_ID, test_terminal, 1, b"12345678901")),
                     decode_frame(bytes.fromhex(BY_NAME["position_fix_serial12"]["frame_hex"])),
                     decode_frame(bytes.fromhex(BY_NAME["batch_0704_serial3"]["frame_hex"])),
+                )
+                frames = tuple(
+                    decode_frame(encode_frame(frame.header.message_id, test_terminal, frame.header.serial, frame.body))
+                    for frame in decoded_frames
                 )
                 results = []
                 for frame in frames:

@@ -60,6 +60,10 @@ out-of-scope ID returns the same generic 404 as a nonexistent ID.
 | POST | `/api/v1/orgs/{org_id}/devices/{device_id}/assign` |
 | POST | `/api/v1/orgs/{org_id}/devices/{device_id}/rotate-secret` |
 | GET | `/api/v1/orgs/{org_id}/positions` |
+| GET | `/api/v1/orgs/{org_id}/vehicles/latest-state` |
+| GET | `/api/v1/orgs/{org_id}/vehicles/{vehicle_id}/latest-state` |
+| GET | `/api/v1/orgs/{org_id}/vehicles/{vehicle_id}/history` |
+| GET | `/api/v1/orgs/{org_id}/vehicles/stream` |
 | DELETE | `/api/v1/orgs/{org_id}/data` |
 
 Group scope is enforced in the repository query layer, after membership is

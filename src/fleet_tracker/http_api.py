@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import asyncio
+import json
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi import FastAPI, HTTPException, Query, Request, Response
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, exists, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -16,7 +19,7 @@ from .auth_security import (
 )
 from .auth_service import AuthService, GENERIC_LOGIN_ERROR
 from .csrf import COOKIE_NAME, clear_cookie_header, cookie_header, validate_origin
-from .db.models import AuditEvent, Device, DeviceVehicleAssignment, MembershipGroupScope, Organization, OrganizationMembership, Position, Session, User, UserGroup, Vehicle, VehicleGroupMembership
+from .db.models import AuditEvent, Device, DeviceVehicleAssignment, MembershipGroupScope, Organization, OrganizationMembership, Position, Session, User, UserGroup, Vehicle, VehicleGroupMembership, VehicleLatestState
 from .db.tenant import organization_transaction, set_user_context
 from .authorization import Action, Assurance, Resource, Role, authorize
 from .org_service import OrganizationError, accept_invitation, change_membership_role, create_group, create_invitation, membership_for, principal_for, resend_invitation, revoke_invitation, set_membership_status
@@ -32,7 +35,7 @@ class LoginBody(BaseModel):
     email: str
     password: str
     csrf_token: str
-    pre_session: str
+    pre_session: str | None = None
 
 
 class PasswordChangeBody(BaseModel):
@@ -93,13 +96,18 @@ class OrganizationSettingsBody(BaseModel):
 
 
 class AuthApp:
-    def __init__(self, sessions: async_sessionmaker[AsyncSession], auth: AuthService, *, manual_links: bool = False, secret_protector: SecretProtector | None = None, auth_pepper: bytes = b"") -> None:
+    def __init__(self, sessions: async_sessionmaker[AsyncSession], auth: AuthService, *, manual_links: bool = False, secret_protector: SecretProtector | None = None, auth_pepper: bytes = b"", offline_after_seconds: int = 300, moving_speed_kmh: float = 1.0, sse_max_streams: int = 16) -> None:
         self.sessions = sessions
         self.auth = auth
         self.manual_links = manual_links
         self.secret_protector = secret_protector
         self.auth_pepper = auth_pepper
         self.login_csrf = LoginPreSessionStore()
+        self.offline_after_seconds = offline_after_seconds
+        self.moving_speed_kmh = moving_speed_kmh
+        self.sse_max_streams = sse_max_streams
+        self._sse_lock = asyncio.Lock()
+        self._active_sse_streams = 0
 
     def build(self) -> FastAPI:
         app = FastAPI(docs_url=None, redoc_url=None)
@@ -156,9 +164,9 @@ class AuthApp:
         async def login(body: LoginBody, request: Request, response: Response):
             try:
                 cookie = request.cookies.get(LOGIN_CSRF_COOKIE)
-                if not cookie or cookie != body.pre_session:
+                if not cookie or (body.pre_session is not None and cookie != body.pre_session):
                     raise AuthenticationError("request rejected")
-                self.login_csrf.consume(body.pre_session, body.csrf_token)
+                self.login_csrf.consume(cookie, body.csrf_token)
                 ticket = await self.auth.login(body.email, body.password, ip=request.client.host if request.client else "unknown", user_agent=request.headers.get("user-agent"), request_id=request_id(request))
             except AuthenticationError as error:
                 detail = GENERIC_LOGIN_ERROR if str(error) == GENERIC_LOGIN_ERROR else "request rejected"
@@ -598,6 +606,173 @@ class AuthApp:
                     rows = await session.scalars(query)
                     return [{"id": row.id, "vehicle_id": str(row.vehicle_id), "gps_timestamp": row.gps_timestamp, "latitude": row.latitude, "longitude": row.longitude} for row in rows]
 
+        def latest_status(row: VehicleLatestState, now: datetime) -> str:
+            if row.last_authenticated_message_at is None or now - row.last_authenticated_message_at > timedelta(seconds=self.offline_after_seconds):
+                return "offline"
+            if row.last_position_at is None or row.latitude is None or row.longitude is None:
+                return "no_fix"
+            return "moving" if (row.speed_kmh or 0) >= self.moving_speed_kmh else "stopped"
+
+        def latest_payload(row: VehicleLatestState, vehicle: Vehicle, now: datetime) -> dict[str, object]:
+            return {
+                "vehicle_id": str(row.vehicle_id),
+                "vehicle_name": vehicle.name,
+                "plate_number": vehicle.plate_number,
+                "device_id": str(row.device_id),
+                "status": latest_status(row, now),
+                "last_authenticated_message_at": row.last_authenticated_message_at,
+                "last_position_at": row.last_position_at,
+                "gps_timestamp": row.gps_timestamp,
+                "latitude": row.latitude,
+                "longitude": row.longitude,
+                "speed_kmh": row.speed_kmh,
+                "course": row.course,
+                "updated_at": row.updated_at,
+            }
+
+        async def latest_rows(session: AsyncSession, *, org_id: UUID, user_id: UUID, restricted: bool, after: datetime | None = None, after_vehicle_id: UUID | None = None):
+            query = select(VehicleLatestState, Vehicle).join(
+                Vehicle,
+                and_(Vehicle.organization_id == org_id, Vehicle.id == VehicleLatestState.vehicle_id),
+            ).where(VehicleLatestState.organization_id == org_id)
+            if after is not None:
+                query = query.where(
+                    (VehicleLatestState.updated_at > after)
+                    | ((VehicleLatestState.updated_at == after) & (VehicleLatestState.vehicle_id > (after_vehicle_id or UUID(int=0))))
+                )
+            if restricted:
+                membership_id = select(OrganizationMembership.id).where(
+                    OrganizationMembership.user_id == user_id,
+                    OrganizationMembership.organization_id == org_id,
+                ).scalar_subquery()
+                query = query.where(exists(select(VehicleGroupMembership.vehicle_id).join(
+                    MembershipGroupScope,
+                    and_(MembershipGroupScope.group_id == VehicleGroupMembership.group_id, MembershipGroupScope.organization_id == org_id),
+                ).where(VehicleGroupMembership.vehicle_id == VehicleLatestState.vehicle_id, MembershipGroupScope.membership_id == membership_id)))
+            return await session.execute(query.order_by(VehicleLatestState.updated_at, VehicleLatestState.vehicle_id).limit(500))
+
+        @app.get("/api/v1/orgs/{org_id}/vehicles/latest-state")
+        async def vehicles_latest_state(org_id: UUID, request: Request):
+            _, user, principal = await org_principal(request, org_id)
+            if not authorize(principal, Action.VIEW_VEHICLES, Resource(org_id, group_id=UUID(int=0))):
+                raise denied()
+            async with self.sessions() as session:
+                async with organization_transaction(session, org_id):
+                    rows = await latest_rows(session, org_id=org_id, user_id=user.id, restricted=principal.group_scope_mode == "restricted")
+                    now = datetime.now(UTC)
+                    return [latest_payload(row, vehicle, now) for row, vehicle in rows]
+
+        @app.get("/api/v1/orgs/{org_id}/vehicles/{vehicle_id}/latest-state")
+        async def vehicle_latest_state(org_id: UUID, vehicle_id: UUID, request: Request):
+            _, user, principal = await org_principal(request, org_id)
+            if not authorize(principal, Action.VIEW_VEHICLES, Resource(org_id, group_id=UUID(int=0))):
+                raise denied()
+            async with self.sessions() as session:
+                async with organization_transaction(session, org_id):
+                    vehicle = await session.scalar(select(Vehicle).where(Vehicle.organization_id == org_id, Vehicle.id == vehicle_id))
+                    if vehicle is None or (principal.group_scope_mode == "restricted" and not await vehicle_in_scope(session, org_id=org_id, user_id=user.id, vehicle_id=vehicle_id)):
+                        raise denied()
+                    row = await session.scalar(select(VehicleLatestState).where(VehicleLatestState.organization_id == org_id, VehicleLatestState.vehicle_id == vehicle_id))
+                    if row is None:
+                        raise denied()
+                    return latest_payload(row, vehicle, datetime.now(UTC))
+
+        @app.get("/api/v1/orgs/{org_id}/vehicles/{vehicle_id}/history")
+        async def vehicle_history(
+            org_id: UUID,
+            vehicle_id: UUID,
+            request: Request,
+            from_: datetime = Query(alias="from"),
+            to: datetime = Query(),
+            cursor: datetime | None = Query(default=None),
+            limit: int = Query(default=500, ge=1, le=500),
+        ):
+            _, user, principal = await org_principal(request, org_id)
+            if not authorize(principal, Action.VIEW_POSITIONS, Resource(org_id, group_id=UUID(int=0))):
+                raise denied()
+            from_ = from_.astimezone(UTC)
+            to = to.astimezone(UTC)
+            if to <= from_ or to - from_ > timedelta(days=31):
+                raise HTTPException(status_code=422, detail="history range rejected")
+            async with self.sessions() as session:
+                async with organization_transaction(session, org_id):
+                    vehicle = await session.scalar(select(Vehicle).where(Vehicle.organization_id == org_id, Vehicle.id == vehicle_id))
+                    if vehicle is None or (principal.group_scope_mode == "restricted" and not await vehicle_in_scope(session, org_id=org_id, user_id=user.id, vehicle_id=vehicle_id)):
+                        raise denied()
+                    query = select(Position).where(
+                        Position.organization_id == org_id,
+                        Position.vehicle_id == vehicle_id,
+                        Position.gps_timestamp >= from_,
+                        Position.gps_timestamp < to,
+                    )
+                    if cursor is not None:
+                        query = query.where(Position.gps_timestamp > cursor.astimezone(UTC))
+                    rows = list(await session.scalars(query.order_by(Position.gps_timestamp).limit(limit * 4 + 1)))
+                    has_more = len(rows) > limit * 4
+                    if has_more:
+                        rows = rows[: limit * 4]
+                    if len(rows) > limit:
+                        stride = max(1, (len(rows) + limit - 1) // limit)
+                        rows = rows[::stride]
+                    next_cursor = rows[-1].gps_timestamp if has_more and rows else None
+                    return {
+                        "vehicle_id": str(vehicle_id),
+                        "from": from_,
+                        "to": to,
+                        "downsampled": len(rows) < limit * 4,
+                        "next_cursor": next_cursor,
+                        "points": [{"id": row.id, "gps_timestamp": row.gps_timestamp, "latitude": row.latitude, "longitude": row.longitude, "speed_kmh": row.speed_kmh, "course": row.course} for row in rows],
+                    }
+
+        @app.get("/api/v1/orgs/{org_id}/vehicles/stream")
+        async def vehicle_stream(org_id: UUID, request: Request):
+            _, _, principal = await org_principal(request, org_id)
+            if not authorize(principal, Action.VIEW_VEHICLES, Resource(org_id, group_id=UUID(int=0))):
+                raise denied()
+            async with self._sse_lock:
+                if self._active_sse_streams >= self.sse_max_streams:
+                    raise HTTPException(status_code=503, detail="live updates unavailable")
+                self._active_sse_streams += 1
+
+            raw_cursor = request.headers.get("last-event-id")
+            cursor_time = None
+            cursor_vehicle = None
+            if raw_cursor:
+                try:
+                    cursor_value, cursor_id = raw_cursor.split("|", 1)
+                    cursor_time = datetime.fromisoformat(cursor_value).astimezone(UTC)
+                    cursor_vehicle = UUID(cursor_id)
+                except (ValueError, TypeError):
+                    cursor_time = None
+
+            async def events():
+                nonlocal cursor_time, cursor_vehicle
+                try:
+                    while True:
+                        if await request.is_disconnected():
+                            break
+                        try:
+                            _, user, current_principal = await org_principal(request, org_id)
+                        except HTTPException:
+                            break
+                        async with self.sessions() as session:
+                            async with organization_transaction(session, org_id):
+                                rows = await latest_rows(session, org_id=org_id, user_id=user.id, restricted=current_principal.group_scope_mode == "restricted", after=cursor_time, after_vehicle_id=cursor_vehicle)
+                                now = datetime.now(UTC)
+                                for row, vehicle in rows:
+                                    cursor_time = row.updated_at
+                                    cursor_vehicle = row.vehicle_id
+                                    event_id = f"{row.updated_at.isoformat()}|{row.vehicle_id}"
+                                    payload = json.dumps(latest_payload(row, vehicle, now), default=str, separators=(",", ":"))
+                                    yield f"id: {event_id}\nevent: vehicle-state\ndata: {payload}\n\n"
+                        yield ": heartbeat\n\n"
+                        await asyncio.sleep(1.5)
+                finally:
+                    async with self._sse_lock:
+                        self._active_sse_streams -= 1
+
+            return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+
         @app.post("/api/v1/orgs/{org_id}/devices")
         async def device_provision(org_id: UUID, body: dict, request: Request, response: Response):
             record, user, principal = await org_principal(request, org_id)
@@ -650,6 +825,18 @@ class AuthApp:
                     await write_audit(session, action="device.assign", result="success", request_id=request_id(request), actor_user_id=user.id, organization_id=org_id, target_id=str(device_id))
             return {"ok": True}
 
+        # Starlette matches routes in registration order. These literal paths
+        # must precede the single-segment vehicle detail route so that
+        # ``latest-state`` and ``stream`` are not parsed as UUIDs.
+        literal_vehicle_paths = {
+            f"/api/v1/orgs/{{org_id}}/vehicles/latest-state",
+            f"/api/v1/orgs/{{org_id}}/vehicles/stream",
+        }
+        literal_routes = [route for route in app.router.routes if getattr(route, "path", None) in literal_vehicle_paths]
+        app.router.routes[:] = [route for route in app.router.routes if route not in literal_routes]
+        detail_index = next((index for index, route in enumerate(app.router.routes) if getattr(route, "path", None) == "/api/v1/orgs/{org_id}/vehicles/{vehicle_id}"), len(app.router.routes))
+        for route in reversed(literal_routes):
+            app.router.routes.insert(detail_index, route)
         return app
 
 
@@ -659,6 +846,6 @@ async def _audit_request(sessions, *, action: str, user_id: UUID, org_id: UUID, 
             await write_audit(session, action=action, result="success", request_id=request_id, actor_user_id=user_id, organization_id=org_id, target_id=target_id)
 
 
-def create_app(sessions: async_sessionmaker[AsyncSession], auth: AuthService, *, manual_links: bool = False, secret_protector: SecretProtector | None = None, auth_pepper: bytes = b"") -> FastAPI:
-    return AuthApp(sessions, auth, manual_links=manual_links, secret_protector=secret_protector, auth_pepper=auth_pepper).build()
+def create_app(sessions: async_sessionmaker[AsyncSession], auth: AuthService, *, manual_links: bool = False, secret_protector: SecretProtector | None = None, auth_pepper: bytes = b"", offline_after_seconds: int = 300, moving_speed_kmh: float = 1.0, sse_max_streams: int = 16) -> FastAPI:
+    return AuthApp(sessions, auth, manual_links=manual_links, secret_protector=secret_protector, auth_pepper=auth_pepper, offline_after_seconds=offline_after_seconds, moving_speed_kmh=moving_speed_kmh, sse_max_streams=sse_max_streams).build()
 

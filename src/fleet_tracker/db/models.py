@@ -239,6 +239,23 @@ class Position(Base):
     raw_message_id: Mapped[int | None] = mapped_column(nullable=True)
 
 
+class VehicleLatestState(Base):
+    __tablename__ = "vehicle_latest_state"
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    vehicle_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    device_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    last_authenticated_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_position_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    gps_timestamp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    latitude: Mapped[float | None] = mapped_column()
+    longitude: Mapped[float | None] = mapped_column()
+    speed_kmh: Mapped[float | None] = mapped_column()
+    course: Mapped[int | None] = mapped_column()
+    status: Mapped[int | None] = mapped_column(BigInteger)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class OutboxEvent(Base):
     __tablename__ = "outbox_events"
 
