@@ -87,8 +87,14 @@ docker compose up --build
 Compose does not run migrations on `up`; run the explicit guarded migration
 command after reviewing the printed host and database. The stack listens for trackers on
 TCP 8881, and runs raw-message retention maintenance. There is intentionally
-no local database container. The HTTP API and web application are added in
-later phases.
+no local database container. The HTTP API and P3 web application run through
+the `api` and `web` Compose services. The web service serves the static Vite
+build and proxies same-origin `/api/*` requests to the API. Configure
+`FLEET_API_DATABASE_URL` for the API; it must not receive the owner/direct
+migration URL.
+
+For web development and the latest-state/history/SSE API contract, see
+`docs/WEB.md`.
 
 Use the direct URL for migrations, provisioning/admin CLI work, and future
 `pg_dump` backups. Runtime services must not depend on session state, `SET`, or

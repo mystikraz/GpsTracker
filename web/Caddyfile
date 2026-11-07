@@ -1,0 +1,21 @@
+:80 {
+    root * /srv
+    encode gzip
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        Content-Security-Policy "default-src 'self'; connect-src 'self'; img-src 'self' data: https://*.tile.openstreetmap.org; style-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+        Referrer-Policy "no-referrer"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+    }
+
+    handle /api/* {
+        reverse_proxy api:8000
+    }
+
+    handle {
+        try_files {path} /index.html
+        file_server
+    }
+}
