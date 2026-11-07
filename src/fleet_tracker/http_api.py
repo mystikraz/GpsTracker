@@ -19,7 +19,7 @@ from .auth_security import (
 )
 from .auth_service import AuthService, GENERIC_LOGIN_ERROR
 from .csrf import COOKIE_NAME, clear_cookie_header, cookie_header, validate_origin
-from .db.models import AuditEvent, Device, DeviceVehicleAssignment, MembershipGroupScope, Organization, OrganizationMembership, Position, Session, User, UserGroup, Vehicle, VehicleGroupMembership, VehicleLatestState
+from .db.models import AuditEvent, Device, DeviceVehicleAssignment, MembershipGroupScope, Organization, OrganizationInvitation, OrganizationMembership, Position, Session, User, UserGroup, Vehicle, VehicleGroupMembership, VehicleLatestState
 from .db.tenant import organization_transaction, set_user_context
 from .authorization import Action, Assurance, Resource, Role, authorize
 from .org_service import OrganizationError, accept_invitation, change_membership_role, create_group, create_invitation, membership_for, principal_for, resend_invitation, revoke_invitation, set_membership_status
@@ -331,6 +331,16 @@ class AuthApp:
             if self.manual_links:
                 response["invite_token"] = token
             return Response(content=__import__("json").dumps(response), media_type="application/json", headers={"Cache-Control": "no-store"})
+
+        @app.get("/api/v1/orgs/{org_id}/invitations")
+        async def invitations(org_id: UUID, request: Request):
+            _, _, principal = await org_principal(request, org_id)
+            if not authorize(principal, Action.VIEW_MEMBERS, Resource(org_id)):
+                raise denied()
+            async with self.sessions() as session:
+                async with organization_transaction(session, org_id):
+                    rows = await session.scalars(select(OrganizationInvitation).where(OrganizationInvitation.organization_id == org_id).order_by(OrganizationInvitation.created_at.desc()).limit(500))
+                    return [{"id": str(row.id), "email": row.email, "role": row.role, "expires_at": row.expires_at, "accepted_at": row.accepted_at, "revoked_at": row.revoked_at} for row in rows]
 
         @app.post("/api/v1/auth/invitations/accept")
         async def accept(body: AcceptInvitationBody, request: Request):
