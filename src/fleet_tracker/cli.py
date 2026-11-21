@@ -13,6 +13,7 @@ import subprocess
 from datetime import datetime, timezone
 from uuid import UUID
 
+from dotenv import load_dotenv
 from sqlalchemy import select, text
 
 from fleet_tracker.db.engine import create_engine_and_session_factory
@@ -220,6 +221,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    load_dotenv()
     args = build_parser().parse_args()
     if args.command == "create-organization":
         asyncio.run(_create_organization(args))

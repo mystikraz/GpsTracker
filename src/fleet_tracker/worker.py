@@ -15,7 +15,7 @@ logger = logging.getLogger("fleet_tracker.worker")
 
 
 async def run() -> None:
-    settings = Settings.from_env()
+    settings = Settings.from_env("FLEET_WORKER_DATABASE_URL")
     engine, sessions = create_engine_and_session_factory(settings.database_url)
     store = PostgresIngestionStore(
         sessions,

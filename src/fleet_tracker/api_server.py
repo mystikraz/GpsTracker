@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import os
 
+from dotenv import load_dotenv
 import uvicorn
 
 from .auth_service import AuthService
@@ -20,6 +21,7 @@ def _decode(value: str) -> bytes:
 
 
 def build_app():
+    load_dotenv()
     database_url = os.environ.get("FLEET_API_DATABASE_URL") or os.environ.get("DATABASE_URL")
     if not database_url:
         raise RuntimeError("FLEET_API_DATABASE_URL must be set")

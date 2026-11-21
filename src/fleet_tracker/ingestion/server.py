@@ -19,7 +19,7 @@ logger = logging.getLogger("fleet_tracker.ingestion")
 
 
 async def run() -> None:
-    settings = Settings.from_env()
+    settings = Settings.from_env("FLEET_INGEST_DATABASE_URL")
     engine, session_factory = create_engine_and_session_factory(settings.database_url)
     protector = AesGcmSecretProtector(settings.device_secret_key)
     store = PostgresIngestionStore(

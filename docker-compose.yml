@@ -63,6 +63,11 @@ services:
         condition: service_completed_successfully
     ports:
       - "127.0.0.1:${API_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1', 8000), 2); s.close()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     mem_limit: 512m
     restart: unless-stopped
     read_only: true

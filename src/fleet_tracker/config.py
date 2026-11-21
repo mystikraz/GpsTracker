@@ -6,6 +6,8 @@ import base64
 import os
 from dataclasses import dataclass
 
+from dotenv import load_dotenv
+
 
 def _secret_bytes(name: str, *, required: bool = True) -> bytes:
     value = os.environ.get(name)
@@ -35,10 +37,13 @@ class Settings:
     device_auth_pepper: bytes = b""
 
     @classmethod
-    def from_env(cls) -> "Settings":
-        database_url = os.environ.get("DATABASE_URL")
+    def from_env(cls, database_env: str = "DATABASE_URL") -> "Settings":
+        # Explicit process environment values win; .env is a local-development
+        # convenience and is not used to override values injected by Compose.
+        load_dotenv()
+        database_url = os.environ.get(database_env) or os.environ.get("DATABASE_URL")
         if not database_url:
-            raise RuntimeError("DATABASE_URL must be set")
+            raise RuntimeError(f"{database_env} must be set")
         return cls(
             database_url=database_url,
             tracker_host=os.environ.get("TRACKER_HOST", "0.0.0.0"),

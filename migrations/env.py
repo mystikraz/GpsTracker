@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 
 from alembic import context
+from dotenv import load_dotenv
 from sqlalchemy import engine_from_config, pool
 
 from fleet_tracker.db.models import Base
@@ -11,6 +12,7 @@ from fleet_tracker.db.migration_guard import migration_database_url
 
 config = context.config
 target_metadata = Base.metadata
+load_dotenv()
 
 
 def run_migrations_offline() -> None:
