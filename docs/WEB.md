@@ -13,7 +13,8 @@ npm run dev
 ```
 
 Vite proxies `/api` to `http://127.0.0.1:8000`. The tile URL is configurable
-with `VITE_TILE_URL`; it is not a secret. Public OpenStreetMap tiles must not
+with `VITE_MAP_STYLE_URL`; it is not a secret. OpenFreeMap attribution is
+provided by MapLibre. Public OpenStreetMap tiles must not
 be treated as an unlimited production service.
 
 ## Authentication flows

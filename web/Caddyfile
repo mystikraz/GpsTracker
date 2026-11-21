@@ -1,11 +1,11 @@
-:80 {
+tracker.goastralabs.com {
     root * /srv
     encode gzip
 
     header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains"
-        Content-Security-Policy "default-src 'self'; connect-src 'self'; img-src 'self' data: https://*.tile.openstreetmap.org; style-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
-        Referrer-Policy "no-referrer"
+        Content-Security-Policy "default-src 'self'; connect-src 'self' https://tiles.openfreemap.org; img-src 'self' data: blob: https://tiles.openfreemap.org; style-src 'self' 'unsafe-inline' https://tiles.openfreemap.org; script-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+        Referrer-Policy "strict-origin-when-cross-origin"
         X-Content-Type-Options "nosniff"
         X-Frame-Options "DENY"
     }
