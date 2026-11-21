@@ -10,3 +10,12 @@ __pycache__/
 
 .local/
 real-captures/
+
+# JavaScript and browser-test artifacts
+node_modules/
+dist/
+coverage/
+playwright-report/
+test-results/
+.playwright-mcp/
+.vite/

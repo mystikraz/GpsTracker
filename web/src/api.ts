@@ -14,7 +14,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   headers.set("Accept", "application/json");
   if (method !== "GET" && method !== "HEAD") {
     headers.set("Content-Type", "application/json");
-    if (!csrfToken) csrfToken = (await request<{ csrf_token: string }>("/api/v1/auth/login/csrf")).csrf_token;
+    if (!csrfToken) csrfToken = (await request<{ csrf_token: string }>("/api/v1/auth/csrf")).csrf_token;
     headers.set("X-CSRF-Token", csrfToken);
   }
   const response = await fetch(path, { ...init, headers, credentials: "include" });

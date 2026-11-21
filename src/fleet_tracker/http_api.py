@@ -14,7 +14,7 @@ from sqlalchemy import and_, exists, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from .auth_security import (
-    AuthenticationError, LoginPreSessionStore, has_recent_reauthentication, require_csrf, require_session,
+    AuthenticationError, LoginPreSessionStore, has_recent_reauthentication, random_token, require_csrf, require_session, token_hash,
     revoke_all_sessions, write_audit,
 )
 from .auth_service import AuthService, GENERIC_LOGIN_ERROR
@@ -188,6 +188,19 @@ class AuthApp:
         async def me(request: Request):
             _, user = await current(request)
             return {"user_id": str(user.id), "email": user.email, "status": user.status}
+
+        @app.get("/api/v1/auth/csrf")
+        async def session_csrf(request: Request, response: Response):
+            record, _ = await current(request)
+            token = random_token()
+            async with self.sessions() as session:
+                async with session.begin():
+                    stored = await session.get(Session, record.id)
+                    if stored is None:
+                        raise HTTPException(status_code=401, detail="authentication required")
+                    stored.csrf_token_hash = token_hash(token)
+            response.headers["X-CSRF-Token"] = token
+            return {"csrf_token": token}
 
         @app.post("/api/v1/auth/password/change")
         async def change_password(body: PasswordChangeBody, request: Request, response: Response):
@@ -790,7 +803,7 @@ class AuthApp:
             if self.secret_protector is None or not authorize(principal, Action.PROVISION_DEVICE, Resource(org_id)):
                 raise denied()
             try:
-                device_id, auth_code = await provision_postgres_device(self.sessions, organization_id=str(org_id), vehicle_id=str(UUID(body["vehicle_id"])), terminal_id=str(body["terminal_id"]), secret_protector=self.secret_protector, auth_pepper=self.auth_pepper)
+                device_id, auth_code = await provision_postgres_device(self.sessions, organization_id=str(org_id), vehicle_id=str(UUID(body["vehicle_id"])), terminal_id=str(body["terminal_id"]), secret_protector=self.secret_protector, auth_code=str(body["auth_code"]) if body.get("auth_code") else None, auth_pepper=self.auth_pepper)
             except (KeyError, ValueError):
                 raise denied()
             await _audit_request(self.sessions, action="device.provision", user_id=user.id, org_id=org_id, request_id=request_id(request))
