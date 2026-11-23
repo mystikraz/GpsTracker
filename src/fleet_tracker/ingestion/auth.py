@@ -25,14 +25,15 @@ def validate_auth_code(auth_code: str) -> str:
 
 
 def generate_auth_code(terminal_id: str) -> str:
-    """Generate an 11-digit secret, avoiding the observed default SN code."""
+    """Return the legacy JT/T 808 auth code derived from the terminal ID.
+
+    The deployed PG07 firmware does not reliably adopt a random code from the
+    registration response. Its existing code is the terminal serial with the
+    leading zero removed, so provisioning must preserve that device behavior.
+    """
 
     terminal_id = validate_terminal_id(terminal_id)
-    observed_default = terminal_id.lstrip("0")[-AUTH_CODE_LENGTH:]
-    while True:
-        code = "".join(str(secrets.randbelow(10)) for _ in range(AUTH_CODE_LENGTH))
-        if code != observed_default:
-            return code
+    return terminal_id.lstrip("0")[-AUTH_CODE_LENGTH:]
 
 
 def hash_auth_code(auth_code: str, pepper: bytes = b"") -> bytes:

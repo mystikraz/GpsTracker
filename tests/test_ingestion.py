@@ -129,11 +129,11 @@ class IngestionTests(unittest.TestCase):
         self.assertEqual(vendor.parser_status, "vendor_or_unknown")
         self.assertEqual(len(self.store.positions), 4)
 
-    def test_generated_secret_differs_from_observed_serial_code(self) -> None:
+    def test_generated_secret_uses_observed_serial_code(self) -> None:
         code = generate_auth_code(DEVICE)
         self.assertEqual(len(code), 11)
         self.assertTrue(code.isascii() and code.isdecimal())
-        self.assertNotEqual(code, DEVICE.lstrip("0"))
+        self.assertEqual(code, DEVICE.lstrip("0")[-11:])
 
     def test_alternate_code_is_issued_and_verified(self) -> None:
         alternate_store = InMemoryIngestionStore()

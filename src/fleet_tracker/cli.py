@@ -17,10 +17,10 @@ from dotenv import load_dotenv
 from sqlalchemy import select, text
 
 from fleet_tracker.db.engine import create_engine_and_session_factory
-from fleet_tracker.db.models import Organization, Vehicle
+from fleet_tracker.db.models import Device, Organization, Vehicle
 from fleet_tracker.db.models import OrganizationMembership, User
 from fleet_tracker.db.provisioning import provision_postgres_device, rotate_postgres_device_secret
-from fleet_tracker.ingestion.auth import AesGcmSecretProtector
+from fleet_tracker.ingestion.auth import AesGcmSecretProtector, generate_auth_code
 from fleet_tracker.auth_security import PasswordService, PasswordPolicyError
 
 
@@ -178,6 +178,26 @@ async def _rotate_device(args: argparse.Namespace) -> None:
         await engine.dispose()
 
 
+async def _sync_device_auth_codes(args: argparse.Namespace) -> None:
+    pepper_value = args.auth_pepper_b64 or os.environ.get("DEVICE_AUTH_PEPPER_B64", "")
+    auth_pepper = _decode_secret(pepper_value) if pepper_value else b""
+    engine, sessions = create_engine_and_session_factory(_database_url(args))
+    try:
+        async with sessions() as session:
+            terminal_ids = list(await session.scalars(select(Device.terminal_id).order_by(Device.terminal_id)))
+        for terminal_id in terminal_ids:
+            await rotate_postgres_device_secret(
+                sessions,
+                terminal_id=terminal_id,
+                secret_protector=_protector(args),
+                auth_code=generate_auth_code(terminal_id),
+                auth_pepper=auth_pepper,
+            )
+        print(f"synced_device_auth_codes={len(terminal_ids)}")
+    finally:
+        await engine.dispose()
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = SecretSafeArgumentParser(prog="fleet-tracker")
     parser.add_argument("--database-url", default=None)
@@ -214,6 +234,9 @@ def build_parser() -> argparse.ArgumentParser:
     rotate.add_argument("--auth-code", action="store_true", required=True, help="read the new code from DEVICE_AUTH_CODE or stdin")
     rotate.add_argument("--secret-key-b64", default=None)
     rotate.add_argument("--auth-pepper-b64", default=None)
+    sync = subparsers.add_parser("sync-device-auth-codes", help="set every device code from its terminal ID")
+    sync.add_argument("--secret-key-b64", default=None)
+    sync.add_argument("--auth-pepper-b64", default=None)
     migrate = subparsers.add_parser("migrate", help="apply migrations with a fail-closed target")
     migrate.add_argument("--confirm-production", action="store_true")
     migrate.add_argument("--revision", default="head")
@@ -235,6 +258,8 @@ def main() -> None:
         asyncio.run(_healthcheck(args))
     elif args.command == "rotate-device-secret":
         asyncio.run(_rotate_device(args))
+    elif args.command == "sync-device-auth-codes":
+        asyncio.run(_sync_device_auth_codes(args))
     elif args.command == "migrate":
         _run_migrations(args.confirm_production, args.revision)
 
