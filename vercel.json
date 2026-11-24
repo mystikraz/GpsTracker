@@ -4,7 +4,7 @@
     "app": {
       "root": ".",
       "framework": "fastapi",
-      "entrypoint": "src/fleet_tracker/api_server.py",
+      "entrypoint": "vercel_app.py",
       "installCommand": "pip install -e ."
     },
     "web": {
