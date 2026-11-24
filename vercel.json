@@ -4,7 +4,7 @@
     "app": {
       "root": ".",
       "framework": "fastapi",
-      "entrypoint": "fleet_tracker.api_server:app",
+      "entrypoint": "src/fleet_tracker/api_server.py",
       "installCommand": "pip install -e ."
     },
     "web": {
