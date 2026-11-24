@@ -50,9 +50,62 @@ function Shell({ children }: { children: React.ReactNode }) {
 
 function Organizations() { const navigate = useNavigate(); const [orgs, setOrgs] = useState<Organization[]>([]); useEffect(() => { api.get<Organization[]>("/api/v1/orgs").then(setOrgs); }, []); return <Page title="Your organizations"><div className="stack">{orgs.map((org) => <button className="list-row" key={org.organization_id} onClick={() => navigate(`/organizations/${org.organization_id}/map`)}><span>{org.organization_id}</span><strong>{org.role}</strong></button>)}</div></Page>; }
 
-function FleetMapCanvas({ vehicles, onError }: { vehicles: Latest[]; onError: (message: string) => void }) { const mapNode = React.useRef<HTMLDivElement>(null); const map = React.useRef<MapLibreMap | null>(null); const markers = React.useRef<Marker[]>([]); const [mapReady, setMapReady] = React.useState(false); useEffect(() => { if (!mapNode.current) return; const instance = new maplibregl.Map({ container: mapNode.current, style: import.meta.env.VITE_MAP_STYLE_URL ?? "https://tiles.openfreemap.org/styles/liberty", center: [85.324, 27.7172], zoom: 7, attributionControl: {} }); const handleError = (event: { error?: Error }) => onError(event.error?.message ?? "Map tiles could not be loaded"); instance.on("load", () => setMapReady(true)); instance.on("error", handleError); instance.addControl(new maplibregl.NavigationControl(), "top-left"); map.current = instance; return () => { instance.off("error", handleError); markers.current.forEach((marker) => marker.remove()); markers.current = []; instance.remove(); map.current = null; setMapReady(false); }; }, [onError]); useEffect(() => { const instance = map.current; if (!instance || !mapReady) return; markers.current.forEach((marker) => marker.remove()); markers.current = vehicles.map((vehicle) => { const color = vehicle.status === "moving" ? "#187047" : "#8c5d19"; const element = document.createElement("div"); element.className = "fleet-marker"; element.style.backgroundColor = color; element.setAttribute("aria-label", vehicle.vehicle_name); return new maplibregl.Marker({ element }).setLngLat([vehicle.longitude!, vehicle.latitude!]).setPopup(new Popup({ offset: 14 }).setHTML(`<strong>${vehicle.vehicle_name}</strong><br />${vehicle.status.replace("_", " ")}`)).addTo(instance); }); if (vehicles.length > 0) { const bounds = new maplibregl.LngLatBounds(); vehicles.forEach((vehicle) => bounds.extend([vehicle.longitude!, vehicle.latitude!])); instance.fitBounds(bounds, { padding: 56, maxZoom: 16, duration: 0 }); } return () => { markers.current.forEach((marker) => marker.remove()); }; }, [mapReady, vehicles]); return <div ref={mapNode} className="fleet-map" />; }
+type TrailPoint = { latitude: number; longitude: number };
 
-function FleetMap() { const { orgId = "" } = useParams(); const [vehicles, setVehicles] = useState<Latest[]>([]); const [state, setState] = useState("connecting"); const [error, setError] = useState(""); const reportMapError = React.useCallback((message: string) => setError(message), []); useEffect(() => { let alive = true; api.get<Latest[]>(`/api/v1/orgs/${orgId}/vehicles/latest-state`).then(setVehicles).catch((cause) => { if (alive) { setState("offline"); setError(cause instanceof Error ? cause.message : "Vehicle data could not be loaded"); } }); const source = new EventSource(`/api/v1/orgs/${orgId}/vehicles/stream`, { withCredentials: true }); source.onopen = () => alive && setState("connected"); source.onerror = () => alive && setState("reconnecting"); source.addEventListener("vehicle-state", (event) => { const next = JSON.parse((event as MessageEvent).data) as Latest; setVehicles((current) => [...current.filter((item) => item.vehicle_id !== next.vehicle_id), next]); }); return () => { alive = false; source.close(); }; }, [orgId]); const positioned = vehicles.filter((vehicle) => vehicle.latitude !== null && vehicle.longitude !== null); return <Page title="Live fleet" action={<span className={`connection ${state}`}>{state}</span>}><ErrorNotice error={error} /><div className="fleet-grid"><section className="map-wrap" aria-label="Fleet map"><FleetMapCanvas vehicles={positioned} onError={reportMapError} /><p className="map-caption">{positioned.length} vehicles with a current fix. The list is the accessible alternative.</p></section><section aria-labelledby="vehicles-heading"><h2 id="vehicles-heading">Vehicle status</h2><div className="stack">{vehicles.map((vehicle) => <article className="list-row" key={vehicle.vehicle_id}><span><strong>{vehicle.vehicle_name}</strong><small>{vehicle.plate_number ?? "No plate"}</small></span><span className={`status ${vehicle.status}`}>{vehicle.status.replace("_", " ")}</span></article>)}</div></section></div></Page>; }
+function FleetMapCanvas({ vehicles, selectedVehicleId, trail, onSelect, onError }: { vehicles: Latest[]; selectedVehicleId: string; trail: TrailPoint[]; onSelect: (vehicleId: string) => void; onError: (message: string) => void }) {
+  const mapNode = React.useRef<HTMLDivElement>(null);
+  const map = React.useRef<MapLibreMap | null>(null);
+  const markers = React.useRef<Marker[]>([]);
+  const [mapReady, setMapReady] = React.useState(false);
+
+  useEffect(() => {
+    if (!mapNode.current) return;
+    const instance = new maplibregl.Map({ container: mapNode.current, style: import.meta.env.VITE_MAP_STYLE_URL ?? "https://tiles.openfreemap.org/styles/liberty", center: [85.324, 27.7172], zoom: 7, attributionControl: {} });
+    const handleError = (event: { error?: Error }) => onError(event.error?.message ?? "Map tiles could not be loaded");
+    instance.on("load", () => setMapReady(true));
+    instance.on("error", handleError);
+    instance.addControl(new maplibregl.NavigationControl(), "top-left");
+    map.current = instance;
+    return () => { instance.off("error", handleError); markers.current.forEach((marker) => marker.remove()); markers.current = []; instance.remove(); map.current = null; setMapReady(false); };
+  }, [onError]);
+
+  useEffect(() => {
+    const instance = map.current;
+    if (!instance || !mapReady) return;
+    markers.current.forEach((marker) => marker.remove());
+    markers.current = vehicles.map((vehicle) => {
+      const color = vehicle.status === "moving" ? "#187047" : "#8c5d19";
+      const element = document.createElement("div");
+      element.className = "fleet-marker";
+      element.style.backgroundColor = color;
+      element.setAttribute("aria-label", vehicle.vehicle_name);
+      element.addEventListener("click", () => onSelect(vehicle.vehicle_id));
+      return new maplibregl.Marker({ element }).setLngLat([vehicle.longitude!, vehicle.latitude!]).setPopup(new Popup({ offset: 14 }).setHTML(`<strong>${vehicle.vehicle_name}</strong><br />${vehicle.status.replace("_", " ")}`)).addTo(instance);
+    });
+    if (vehicles.length > 0) {
+      const bounds = new maplibregl.LngLatBounds();
+      vehicles.forEach((vehicle) => bounds.extend([vehicle.longitude!, vehicle.latitude!]));
+      instance.fitBounds(bounds, { padding: 56, maxZoom: 16, duration: 0 });
+    }
+    return () => { markers.current.forEach((marker) => marker.remove()); };
+  }, [mapReady, vehicles, onSelect]);
+
+  useEffect(() => {
+    const instance = map.current;
+    if (!instance || !mapReady) return;
+    const data = { type: "Feature", geometry: { type: "LineString", coordinates: trail.map((point) => [point.longitude, point.latitude]) }, properties: {} } as GeoJSON.Feature<GeoJSON.LineString>;
+    const source = instance.getSource("vehicle-trail") as maplibregl.GeoJSONSource | undefined;
+    if (source) source.setData(data);
+    else {
+      instance.addSource("vehicle-trail", { type: "geojson", data });
+      instance.addLayer({ id: "vehicle-trail", type: "line", source: "vehicle-trail", paint: { "line-color": "#1d4ed8", "line-width": 4, "line-opacity": 0.8 } });
+    }
+  }, [mapReady, trail]);
+
+  return <div ref={mapNode} className="fleet-map" aria-label={selectedVehicleId ? "Live vehicle map with selected vehicle trail" : "Live vehicle map"} />;
+}
+
+function FleetMap() { const { orgId = "" } = useParams(); const [vehicles, setVehicles] = useState<Latest[]>([]); const [selectedVehicleId, setSelectedVehicleId] = useState(""); const [trail, setTrail] = useState<TrailPoint[]>([]); const [state, setState] = useState("connecting"); const [error, setError] = useState(""); const reportMapError = React.useCallback((message: string) => setError(message), []); const selectVehicle = React.useCallback((vehicleId: string) => setSelectedVehicleId(vehicleId), []); useEffect(() => { let alive = true; api.get<Latest[]>(`/api/v1/orgs/${orgId}/vehicles/latest-state`).then((rows) => { setVehicles(rows); setSelectedVehicleId((current) => current || rows.find((row) => row.latitude !== null && row.longitude !== null)?.vehicle_id || ""); }).catch((cause) => { if (alive) { setState("offline"); setError(cause instanceof Error ? cause.message : "Vehicle data could not be loaded"); } }); const source = new EventSource(`/api/v1/orgs/${orgId}/vehicles/stream`, { withCredentials: true }); source.onopen = () => alive && setState("connected"); source.onerror = () => alive && setState("reconnecting"); source.addEventListener("vehicle-state", (event) => { const next = JSON.parse((event as MessageEvent).data) as Latest; setVehicles((current) => [...current.filter((item) => item.vehicle_id !== next.vehicle_id), next]); }); return () => { alive = false; source.close(); }; }, [orgId]); useEffect(() => { if (!selectedVehicleId) { setTrail([]); return; } const to = new Date(); const from = new Date(to.getTime() - 24 * 60 * 60 * 1000); api.get<{ points: TrailPoint[] }>(`/api/v1/orgs/${orgId}/vehicles/${selectedVehicleId}/history?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`).then((result) => setTrail(result.points)).catch((cause) => setError(cause instanceof Error ? cause.message : "Vehicle trail could not be loaded")); }, [orgId, selectedVehicleId]); const positioned = vehicles.filter((vehicle) => vehicle.latitude !== null && vehicle.longitude !== null); return <Page title="Live fleet" action={<span className={`connection ${state}`}>{state}</span>}><ErrorNotice error={error} /><div className="fleet-grid"><section className="map-wrap" aria-label="Fleet map"><FleetMapCanvas vehicles={positioned} selectedVehicleId={selectedVehicleId} trail={trail} onSelect={selectVehicle} onError={reportMapError} /><p className="map-caption">{positioned.length} vehicles with a current fix. Click a marker to show its last 24-hour trail.</p></section><section aria-labelledby="vehicles-heading"><h2 id="vehicles-heading">Vehicle status</h2><div className="stack">{vehicles.map((vehicle) => <button className="list-row" key={vehicle.vehicle_id} onClick={() => selectVehicle(vehicle.vehicle_id)}><span><strong>{vehicle.vehicle_name}</strong><small>{vehicle.plate_number ?? "No plate"}</small></span><span className={`status ${vehicle.status}`}>{vehicle.status.replace("_", " ")}</span></button>)}</div></section></div></Page>; }
 
 function GenericOrgPage({ title }: { title: string }) { return <Page title={title}><div className="empty-panel"><h2>{title}</h2><p className="muted">This workspace is ready for the authorized organization workflow.</p></div></Page>; }
 function Page({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) { return <><div className="page-heading"><div><p className="eyebrow">Organization workspace</p><h1>{title}</h1></div>{action}</div>{children}</>; }
