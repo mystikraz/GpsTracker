@@ -181,7 +181,16 @@ class AuthApp:
             response.headers["Cache-Control"] = response.headers.get("Cache-Control", "no-store")
             response.headers["Referrer-Policy"] = "no-referrer"
             response.headers["X-Content-Type-Options"] = "nosniff"
-            response.headers["Content-Security-Policy"] = "default-src 'self'; frame-ancestors 'none'"
+            if request.url.path.startswith(("/api/docs", "/api/redoc")):
+                response.headers["Content-Security-Policy"] = (
+                    "default-src 'self'; "
+                    "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+                    "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+                    "img-src 'self' data: https://fastapi.tiangolo.com; "
+                    "connect-src 'self'; frame-ancestors 'none'; object-src 'none'"
+                )
+            else:
+                response.headers["Content-Security-Policy"] = "default-src 'self'; frame-ancestors 'none'"
             return response
 
         def request_id(request: Request) -> str:

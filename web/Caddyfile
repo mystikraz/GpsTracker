@@ -4,7 +4,6 @@ tracker.goastralabs.com {
 
     header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains"
-        Content-Security-Policy "default-src 'self'; connect-src 'self' https://tiles.openfreemap.org; img-src 'self' data: blob: https://tiles.openfreemap.org; style-src 'self' 'unsafe-inline' https://tiles.openfreemap.org; script-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
         Referrer-Policy "strict-origin-when-cross-origin"
         X-Content-Type-Options "nosniff"
         X-Frame-Options "DENY"
@@ -15,6 +14,7 @@ tracker.goastralabs.com {
     }
 
     handle {
+        header Content-Security-Policy "default-src 'self'; connect-src 'self' https://tiles.openfreemap.org; img-src 'self' data: blob: https://tiles.openfreemap.org; style-src 'self' 'unsafe-inline' https://tiles.openfreemap.org; script-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
         try_files {path} /index.html
         file_server
     }
