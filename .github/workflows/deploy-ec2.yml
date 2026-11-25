@@ -11,6 +11,7 @@ concurrency:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   verify:
@@ -47,17 +48,25 @@ jobs:
     needs: verify
     runs-on: ubuntu-latest
     environment: production
-    permissions:
-      contents: read
-      id-token: write
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Validate deployment configuration
+        env:
+          AWS_DEPLOY_ROLE_ARN: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          RELEASE_BUCKET: ${{ secrets.RELEASE_BUCKET }}
+          EC2_INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID }}
+        run: |
+          test "$AWS_DEPLOY_ROLE_ARN" = "arn:aws:iam::816869990738:role/gps-tracker-github-actions-deploy"
+          test "$RELEASE_BUCKET" = "gps-tracker-releases-816869990738-ap-south-1"
+          test "$EC2_INSTANCE_ID" = "i-0554882b3f79e399f"
 
       - name: Configure AWS credentials with GitHub OIDC
         uses: aws-actions/configure-aws-credentials@v6.3.0
         with:
           aws-region: ap-south-1
+          audience: sts.amazonaws.com
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           role-session-name: gps-tracker-${{ github.run_id }}
 
