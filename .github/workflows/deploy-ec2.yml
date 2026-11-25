@@ -80,8 +80,8 @@ jobs:
             --exclude '.uv-cache/' \
             --exclude 'web/node_modules/' \
             --exclude 'web/dist/' \
-            -czf release.tar.gz .
-          aws s3 cp release.tar.gz "s3://$RELEASE_BUCKET/releases/${GITHUB_SHA}.tar.gz"
+            -czf /tmp/gps-tracker-release.tar.gz .
+          aws s3 cp /tmp/gps-tracker-release.tar.gz "s3://$RELEASE_BUCKET/releases/${GITHUB_SHA}.tar.gz"
 
       - name: Deploy release with SSM Run Command
         env:
