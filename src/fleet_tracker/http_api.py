@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response
+from fastapi.openapi.utils import get_openapi
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, exists, select, text
@@ -110,7 +111,69 @@ class AuthApp:
         self._active_sse_streams = 0
 
     def build(self) -> FastAPI:
-        app = FastAPI(docs_url=None, redoc_url=None)
+        app = FastAPI(
+            title="GPS Tracker API",
+            summary="Fleet, vehicle, device, and position APIs for GPS Tracker mobile clients.",
+            description=(
+                "Use the session cookie returned by `/api/v1/auth/login` for authenticated requests. "
+                "State-changing requests must also send the CSRF token from `/api/v1/auth/csrf` in "
+                "the `X-CSRF-Token` header. The OpenAPI document is available at `/api/openapi.json`."
+            ),
+            version="1.0.0",
+            docs_url="/api/docs",
+            redoc_url="/api/redoc",
+            openapi_url="/api/openapi.json",
+            openapi_tags=[
+                {"name": "authentication", "description": "Login, session, password, and account recovery flows."},
+                {"name": "organizations", "description": "Organization settings, members, groups, invitations, and audit events."},
+                {"name": "fleet", "description": "Vehicles, live state, positions, history, and streaming updates."},
+                {"name": "devices", "description": "Tracker device provisioning, assignment, and secret rotation."},
+            ],
+        )
+
+        def custom_openapi():
+            if app.openapi_schema:
+                return app.openapi_schema
+            schema = get_openapi(
+                title=app.title,
+                version=app.version,
+                summary=app.summary,
+                description=app.description,
+                routes=app.routes,
+                tags=app.openapi_tags,
+            )
+            schema.setdefault("components", {}).setdefault("securitySchemes", {})["SessionCookie"] = {
+                "type": "apiKey",
+                "in": "cookie",
+                "name": COOKIE_NAME,
+                "description": "HttpOnly session cookie returned by the login endpoint.",
+            }
+            public_paths = {
+                "/api/v1/auth/login/csrf",
+                "/api/v1/auth/login",
+                "/api/v1/auth/reset/request",
+                "/api/v1/auth/reset/consume",
+                "/api/v1/auth/invitations/accept",
+            }
+            for path, operations in schema.get("paths", {}).items():
+                for method, operation in operations.items():
+                    if method == "parameters" or not isinstance(operation, dict):
+                        continue
+                    if path not in public_paths:
+                        operation["security"] = [{"SessionCookie": []}]
+                    if "tags" not in operation:
+                        if path.startswith("/api/v1/auth/"):
+                            operation["tags"] = ["authentication"]
+                        elif "/devices" in path:
+                            operation["tags"] = ["devices"]
+                        elif any(part in path for part in ("/vehicles", "/positions")):
+                            operation["tags"] = ["fleet"]
+                        else:
+                            operation["tags"] = ["organizations"]
+            app.openapi_schema = schema
+            return app.openapi_schema
+
+        app.openapi = custom_openapi
 
         @app.middleware("http")
         async def security_headers(request: Request, call_next):
