@@ -1,5 +1,12 @@
 # JT/T 808 fixtures (PG07 tracker)
 
+## Mobile API integration
+
+Mobile developers should start with [`docs/MOBILE_DEVELOPMENT.md`](docs/MOBILE_DEVELOPMENT.md)
+for environment setup, authentication, cookies, CSRF, live updates, and local
+device testing. The interactive API contract is available at
+`https://tracker.goastralabs.com/api/docs`.
+
 `jt808_fixtures.json` holds synthetic JT/T 808 fixtures derived from a PG07 4G capture, plus derived negative cases. The original capture is kept only in the gitignored `.local/captures/` folder.
 
 ## Provenance
@@ -125,10 +132,11 @@ the new service until the device record and vehicle assignment exist.
    to Neon while the prototype remains on its existing SQLite database; do not
    configure both services to receive the same device simultaneously unless an
    explicit fan-out test has been designed.
-3. Provision the existing terminal with its currently stored code
-   `58392017406`, because this device reconnects with `0x0102` and does not
-   receive a new `0x8100` response on every reconnect. Treat this as a
-   time-bounded migration secret, not the production default.
+3. Provision the existing terminal with its currently stored authentication
+   code through the approved secure operator procedure, because this device
+   reconnects with `0x0102` and does not receive a new `0x8100` response on
+   every reconnect. Treat that code as a time-bounded migration secret, not a
+   repository value or production default.
 4. Send `SL DP<ip>#8882#` by SMS. Confirm the new service accepts the direct
    `0x0102`, authenticated heartbeats, and positions.
 5. If the canary fails, send `SL DP<ip>#8881#` and confirm the prototype

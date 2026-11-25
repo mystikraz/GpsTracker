@@ -1,5 +1,9 @@
 # GPS Tracker API
 
+For complete mobile setup instructions, including local development,
+cookie-aware authentication, CSRF handling, and SSE usage, see
+[`MOBILE_DEVELOPMENT.md`](MOBILE_DEVELOPMENT.md).
+
 The production API documentation is served by FastAPI:
 
 - Swagger UI: `https://tracker.goastralabs.com/api/docs`
