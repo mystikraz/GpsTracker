@@ -75,7 +75,10 @@ services:
     security_opt: [no-new-privileges:true]
 
   web:
-    build: ./web
+    build:
+      context: ./web
+      args:
+        VITE_MAP_STYLE_URL: "${VITE_MAP_STYLE_URL:-https://tiles.openfreemap.org/styles/liberty}"
     depends_on:
       api:
         condition: service_started

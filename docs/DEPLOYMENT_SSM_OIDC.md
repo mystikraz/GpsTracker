@@ -10,7 +10,10 @@ the GitHub Actions SSH private key. The workflow:
 5. Runs the guarded production migration.
 6. Restarts and verifies the Compose services.
 
-The production `.env` remains on the EC2 host and is never uploaded.
+The production environment is stored in the protected GitHub `production`
+environment as the `PRODUCTION_ENV_FILE` secret. Each deployment synchronizes
+that secret to the encrypted SSM parameter `/gps-tracker/production/env`, then
+fetches it onto the EC2 host as `.env` immediately before Docker Compose starts.
 
 ## GitHub environment
 
@@ -22,6 +25,7 @@ Create a GitHub environment named `production` and add these secrets:
 | `RELEASE_BUCKET` | S3 bucket used for release archives |
 | `EC2_INSTANCE_ID` | Target EC2 instance ID |
 | `EC2_APP_DIR` | `/home/ubuntu/gps-tracker` |
+| `PRODUCTION_ENV_FILE` | Complete production `.env` contents |
 
 The workflow is `.github/workflows/deploy-ec2.yml`.
 
@@ -34,7 +38,10 @@ The EC2 instance must be a Systems Manager managed node. It needs:
 - AWS CLI installed.
 - Outbound HTTPS access to SSM and S3 endpoints.
 - Docker Compose available to the `ubuntu` user through `sudo`.
-- `/home/ubuntu/gps-tracker/.env` already present.
+
+The GitHub deployment role also needs `ssm:PutParameter` for
+`/gps-tracker/production/env`. The EC2 instance role needs `ssm:GetParameter`
+for that parameter and `kms:Decrypt` for the KMS key used by the SecureString.
 
 Create an S3 bucket in `ap-south-1` with Block Public Access and default
 encryption. Restrict its use to the release prefix and add a lifecycle rule to
@@ -106,6 +113,12 @@ bucket name. The SSM document and target instance are both restricted.
       "Effect": "Allow",
       "Action": "ssm:GetCommandInvocation",
       "Resource": "*"
+    },
+    {
+      "Sid": "WriteProductionEnvironment",
+      "Effect": "Allow",
+      "Action": "ssm:PutParameter",
+      "Resource": "arn:aws:ssm:ap-south-1:<ACCOUNT_ID>:parameter/gps-tracker/production/env"
     }
   ]
 }
@@ -136,6 +149,18 @@ the release prefix:
       "Effect": "Allow",
       "Action": "s3:GetBucketLocation",
       "Resource": "arn:aws:s3:::<RELEASE_BUCKET>"
+    },
+    {
+      "Sid": "ReadProductionEnvironment",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:GetParameter",
+        "kms:Decrypt"
+      ],
+      "Resource": [
+        "arn:aws:ssm:ap-south-1:<ACCOUNT_ID>:parameter/gps-tracker/production/env",
+        "arn:aws:kms:ap-south-1:<ACCOUNT_ID>:key/<KMS_KEY_ID>"
+      ]
     }
   ]
 }

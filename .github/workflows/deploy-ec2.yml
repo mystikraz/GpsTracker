@@ -70,6 +70,18 @@ jobs:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           role-session-name: gps-tracker-${{ github.run_id }}
 
+      - name: Sync production environment to SSM Parameter Store
+        env:
+          PRODUCTION_ENV_FILE: ${{ secrets.PRODUCTION_ENV_FILE }}
+        run: |
+          test -n "$PRODUCTION_ENV_FILE"
+          aws ssm put-parameter \
+            --name /gps-tracker/production/env \
+            --type SecureString \
+            --value "$PRODUCTION_ENV_FILE" \
+            --overwrite \
+            --region ap-south-1
+
       - name: Package and upload release
         env:
           RELEASE_BUCKET: ${{ secrets.RELEASE_BUCKET }}
@@ -99,7 +111,8 @@ jobs:
             --arg app_dir "$APP_DIR" \
             '{commands: [
               "set -euo pipefail",
-              ("test -f " + $app_dir + "/.env"),
+              ("aws ssm get-parameter --name /gps-tracker/production/env --with-decryption --query Parameter.Value --output text --region ap-south-1 > " + $app_dir + "/.env.tmp"),
+              ("chmod 600 " + $app_dir + "/.env.tmp && mv " + $app_dir + "/.env.tmp " + $app_dir + "/.env"),
               ("mkdir -p /tmp/gps-tracker-release && aws s3 cp s3://" + $bucket + "/" + $key + " /tmp/gps-tracker-release.tar.gz"),
               ("tar -xzf /tmp/gps-tracker-release.tar.gz -C " + $app_dir),
               ("cd " + $app_dir + " && sudo docker compose build --pull"),
