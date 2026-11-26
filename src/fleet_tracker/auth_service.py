@@ -54,8 +54,14 @@ class AuthService:
                 now = datetime.now(UTC)
                 user = User(email=normalized, password_hash=password_hash, created_at=now, updated_at=now, password_changed_at=now)
                 organization = Organization(name="My organization", timezone="Asia/Kathmandu", position_retention_months=12, raw_retention_days=30, created_at=now)
-                session.add_all([user, organization])
+                session.add(organization)
                 await session.flush()
+                session.add(user)
+                await session.flush()
+                await session.execute(
+                    text("SELECT set_config('app.organization_id', :organization_id, true)"),
+                    {"organization_id": str(organization.id)},
+                )
                 session.add(OrganizationMembership(organization_id=organization.id, user_id=user.id, role="owner", status="active", group_scope_mode="all", created_at=now))
                 ticket = await create_session(session, user=user, ip_address=ip, user_agent_redacted=user_agent, idle_seconds=900, absolute_seconds=8 * 60 * 60)
                 await write_audit(session, action="bootstrap.owner_created", result="success", request_id=request_id, actor_user_id=user.id, organization_id=organization.id, ip_address=ip, user_agent_redacted=user_agent)
