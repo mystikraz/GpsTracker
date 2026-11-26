@@ -38,6 +38,7 @@ class Action(StrEnum):
     DELETE_VEHICLE = "delete_vehicle"
     VIEW_DEVICES = "view_devices"
     PROVISION_DEVICE = "provision_device"
+    DELETE_DEVICE = "delete_device"
     ASSIGN_DEVICE = "assign_device"
     ROTATE_DEVICE_SECRET = "rotate_device_secret"
     VIEW_POSITIONS = "view_positions"
@@ -83,6 +84,7 @@ _REAUTH = frozenset(
         Action.SUSPEND_REMOVE_OWNER,
         Action.DELETE_VEHICLE,
         Action.PROVISION_DEVICE,
+        Action.DELETE_DEVICE,
         Action.ASSIGN_DEVICE,
         Action.ROTATE_DEVICE_SECRET,
         Action.SET_MEMBER_GROUP_SCOPE,
@@ -110,6 +112,7 @@ _ROLE_ACTIONS: dict[Role, frozenset[Action]] = {
             Action.DELETE_VEHICLE,
             Action.VIEW_DEVICES,
             Action.PROVISION_DEVICE,
+            Action.DELETE_DEVICE,
             Action.ASSIGN_DEVICE,
             Action.ROTATE_DEVICE_SECRET,
             Action.VIEW_POSITIONS,

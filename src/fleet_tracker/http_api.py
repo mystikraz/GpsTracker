@@ -958,6 +958,30 @@ class AuthApp:
                     await write_audit(session, action="device.assign", result="success", request_id=request_id(request), actor_user_id=user.id, organization_id=org_id, target_id=str(device_id))
             return {"ok": True}
 
+        @app.delete("/api/v1/orgs/{org_id}/devices/{device_id}")
+        async def device_delete(org_id: UUID, device_id: UUID, request: Request):
+            record, user, principal = await org_principal(request, org_id)
+            await csrf_request(request, record)
+            if not authorize(principal, Action.DELETE_DEVICE, Resource(org_id)):
+                raise denied()
+            async with self.sessions() as session:
+                async with organization_transaction(session, org_id):
+                    device = await session.scalar(select(Device).where(Device.id == device_id, Device.organization_id == org_id, Device.active.is_(True)))
+                    if device is None:
+                        raise denied()
+                    assignment = await session.scalar(
+                        select(DeviceVehicleAssignment).where(
+                            DeviceVehicleAssignment.device_id == device_id,
+                            DeviceVehicleAssignment.organization_id == org_id,
+                            DeviceVehicleAssignment.effective_to.is_(None),
+                        )
+                    )
+                    if assignment is not None:
+                        assignment.effective_to = datetime.now(UTC)
+                    device.active = False
+                    await write_audit(session, action="device.delete", result="success", request_id=request_id(request), actor_user_id=user.id, organization_id=org_id, target_id=str(device_id))
+            return {"ok": True}
+
         # Starlette matches routes in registration order. These literal paths
         # must precede the single-segment vehicle detail route so that
         # ``latest-state`` and ``stream`` are not parsed as UUIDs.

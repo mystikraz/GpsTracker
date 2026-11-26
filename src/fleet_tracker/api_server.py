@@ -30,9 +30,12 @@ def build_app():
     # callers do not need to expose a generic DATABASE_URL in .env.
     os.environ.setdefault("DATABASE_URL", database_url)
     settings = Settings.from_env()
-    auth_pepper_value = os.environ.get("AUTH_PEPPER_B64")
+    # Device authentication hashes must use the same pepper as the TCP
+    # ingestion service.  Keep this explicitly device-scoped so UI
+    # provisioning and tracker authentication cannot drift apart.
+    auth_pepper_value = os.environ.get("DEVICE_AUTH_PEPPER_B64")
     if not auth_pepper_value:
-        raise RuntimeError("AUTH_PEPPER_B64 must be set")
+        raise RuntimeError("DEVICE_AUTH_PEPPER_B64 must be set")
     engine, sessions = create_engine_and_session_factory(database_url)
     passwords = PasswordService(
         breached_password_file=os.environ.get("PASSWORD_BREACHED_LIST_PATH"),

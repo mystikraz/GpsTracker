@@ -9,6 +9,7 @@ import { api, ApiError, readAndClearFragmentToken, Role } from "./api";
 type Me = { user_id: string; email: string; status: string };
 type Organization = { organization_id: string; role: Role };
 type Vehicle = { id: string; name: string; plate_number: string | null };
+type Device = { id: string; terminal_id: string; vehicle_id: string };
 type Latest = { vehicle_id: string; vehicle_name: string; plate_number: string | null; status: "moving" | "stopped" | "offline" | "no_fix"; latitude: number | null; longitude: number | null; gps_timestamp: string | null; speed_kmh: number | null };
 
 function ErrorNotice({ error }: { error: unknown }) {
@@ -119,6 +120,81 @@ function FleetMap() { const { orgId = "" } = useParams(); const [vehicles, setVe
 function GenericOrgPage({ title }: { title: string }) { return <Page title={title}><div className="empty-panel"><h2>{title}</h2><p className="muted">This workspace is ready for the authorized organization workflow.</p></div></Page>; }
 function Page({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) { return <><div className="page-heading"><div><p className="eyebrow">Organization workspace</p><h1>{title}</h1></div>{action}</div>{children}</>; }
 
-function App() { return <Routes><Route path="/login" element={<Login />} /><Route path="/create-account" element={<CreateAccount />} /><Route path="/reset-password" element={<FragmentTokenPage />} /><Route path="/accept-invitation" element={<FragmentTokenPage invitation />} /><Route path="/forgot-password" element={<ForgotPassword />} /><Route path="/" element={<Navigate to="/organizations" replace />} /><Route path="/organizations" element={<Shell><Organizations /></Shell>} /><Route path="/organizations/:orgId/map" element={<Shell><FleetMap /></Shell>} /><Route path="/organizations/:orgId/history" element={<Shell><History /></Shell>} /><Route path="/organizations/:orgId/:section" element={<Shell><OrgSection /></Shell>} /><Route path="/account/sessions" element={<Shell><Sessions /></Shell>} /><Route path="/change-password" element={<Shell><ChangePassword /></Shell>} /><Route path="*" element={<Navigate to="/organizations" replace />} /></Routes>; }
+function OrgRoute() { const { section = "" } = useParams(); return section === "devices" ? <DeviceSection /> : <OrgSection />; }
+function App() { return <Routes><Route path="/login" element={<Login />} /><Route path="/create-account" element={<CreateAccount />} /><Route path="/reset-password" element={<FragmentTokenPage />} /><Route path="/accept-invitation" element={<FragmentTokenPage invitation />} /><Route path="/forgot-password" element={<ForgotPassword />} /><Route path="/" element={<Navigate to="/organizations" replace />} /><Route path="/organizations" element={<Shell><Organizations /></Shell>} /><Route path="/organizations/:orgId/map" element={<Shell><FleetMap /></Shell>} /><Route path="/organizations/:orgId/history" element={<Shell><History /></Shell>} /><Route path="/organizations/:orgId/:section" element={<Shell><OrgRoute /></Shell>} /><Route path="/account/sessions" element={<Shell><Sessions /></Shell>} /><Route path="/change-password" element={<Shell><ChangePassword /></Shell>} /><Route path="*" element={<Navigate to="/organizations" replace />} /></Routes>; }
+
+function DeviceSection() {
+  const { orgId = "" } = useParams();
+  const [devices, setDevices] = useState<Device[]>([]);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [error, setError] = useState<unknown>();
+  const [terminalId, setTerminalId] = useState("");
+  const [selectedVehicle, setSelectedVehicle] = useState("");
+  const [existingAuthCode, setExistingAuthCode] = useState("");
+  const [provisionPassword, setProvisionPassword] = useState("");
+  const [authCode, setAuthCode] = useState("");
+  const [editing, setEditing] = useState<Device | null>(null);
+  const [editVehicleId, setEditVehicleId] = useState("");
+  const [editAuthCode, setEditAuthCode] = useState("");
+  const [editPassword, setEditPassword] = useState("");
+
+  const load = () => Promise.all([
+    api.get<Device[]>(`/api/v1/orgs/${orgId}/devices`),
+    api.get<Vehicle[]>(`/api/v1/orgs/${orgId}/vehicles`),
+  ]).then(([deviceRows, vehicleRows]) => {
+    setDevices(deviceRows);
+    setVehicles(vehicleRows);
+    if (!selectedVehicle && vehicleRows[0]) setSelectedVehicle(vehicleRows[0].id);
+  }).catch(setError);
+  useEffect(() => { void load(); }, [orgId]);
+
+  async function provision() {
+    try {
+      await api.post("/api/v1/auth/reauthenticate", { password: provisionPassword, purpose: "device.provision", csrf_token: "" });
+      const result = await api.post<{ device_id: string; auth_code: string }>(`/api/v1/orgs/${orgId}/devices`, {
+        vehicle_id: selectedVehicle,
+        terminal_id: terminalId,
+        ...(existingAuthCode ? { auth_code: existingAuthCode } : {}),
+      });
+      setAuthCode(result.auth_code);
+      setTerminalId(""); setExistingAuthCode(""); setProvisionPassword("");
+      await load();
+    } catch (cause) { setError(cause); }
+  }
+
+  function beginEdit(device: Device) {
+    setEditing(device); setEditVehicleId(device.vehicle_id); setEditAuthCode(""); setEditPassword(""); setError(undefined);
+  }
+
+  async function saveEdit() {
+    if (!editing) return;
+    try {
+      await api.post("/api/v1/auth/reauthenticate", { password: editPassword, purpose: "device.edit", csrf_token: "" });
+      if (editVehicleId !== editing.vehicle_id) await api.post(`/api/v1/orgs/${orgId}/devices/${editing.id}/assign`, { vehicle_id: editVehicleId });
+      if (editAuthCode) await api.post(`/api/v1/orgs/${orgId}/devices/${editing.id}/rotate-secret`, { auth_code: editAuthCode });
+      setEditing(null); await load();
+    } catch (cause) { setError(cause); }
+  }
+
+  async function deleteDevice(device: Device) {
+    if (!window.confirm(`Remove tracker ${device.terminal_id}? Its history will be retained, but it will stop authenticating.`)) return;
+    const password = window.prompt("Enter your password to confirm removal:");
+    if (!password) return;
+    try {
+      await api.post("/api/v1/auth/reauthenticate", { password, purpose: "device.delete", csrf_token: "" });
+      await api.delete(`/api/v1/orgs/${orgId}/devices/${device.id}`);
+      if (editing?.id === device.id) setEditing(null);
+      await load();
+    } catch (cause) { setError(cause); }
+  }
+
+  const vehicleName = (id: string) => vehicles.find((vehicle) => vehicle.id === id)?.name ?? "Unassigned";
+  return <Page title="Devices" action={<div className="device-form"><input aria-label="Terminal ID" inputMode="numeric" value={terminalId} onChange={(e) => setTerminalId(e.target.value)} placeholder="12-digit terminal ID" /><select aria-label="Vehicle" value={selectedVehicle} onChange={(e) => setSelectedVehicle(e.target.value)}><option value="" disabled>Vehicle</option>{vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.name}</option>)}</select><input aria-label="Existing device auth code" inputMode="numeric" value={existingAuthCode} onChange={(e) => setExistingAuthCode(e.target.value)} placeholder="Existing 11-digit code" /><input aria-label="Password confirmation" type="password" autoComplete="current-password" value={provisionPassword} onChange={(e) => setProvisionPassword(e.target.value)} placeholder="Confirm password" /><button className="primary" onClick={provision} disabled={!terminalId || !selectedVehicle || !provisionPassword}>Add device</button></div>}>
+    <ErrorNotice error={error} />
+    {authCode && <p className="notice success">Device added. Save this one-time device authentication code: <code>{authCode}</code></p>}
+    {editing && <section className="panel" aria-label={`Edit device ${editing.terminal_id}`}><h2>Edit {editing.terminal_id}</h2><div className="inline-form"><label>Vehicle<select value={editVehicleId} onChange={(e) => setEditVehicleId(e.target.value)}>{vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.name}</option>)}</select></label><label>New authentication code<input inputMode="numeric" value={editAuthCode} onChange={(e) => setEditAuthCode(e.target.value)} placeholder="11 digits, optional" /></label><label>Confirm password<input type="password" autoComplete="current-password" value={editPassword} onChange={(e) => setEditPassword(e.target.value)} required /></label><button className="primary" onClick={saveEdit} disabled={!editPassword}>Save changes</button><button onClick={() => setEditing(null)}>Cancel</button></div><p className="muted">Terminal IDs cannot be edited. Leave the authentication field empty to change only the vehicle assignment.</p></section>}
+    <div className="table-wrap"><table><caption className="sr-only">Devices</caption><thead><tr><th scope="col">Terminal ID</th><th scope="col">Vehicle</th><th scope="col">Actions</th></tr></thead><tbody>{devices.map((device) => <tr key={device.id}><th scope="row"><code>{device.terminal_id}</code></th><td>{vehicleName(device.vehicle_id)}</td><td className="action-row"><button onClick={() => beginEdit(device)}>Edit</button><button onClick={() => deleteDevice(device)}>Delete</button></td></tr>)}</tbody></table></div>
+  </Page>;
+}
 
 createRoot(document.getElementById("root")!).render(<React.StrictMode><BrowserRouter><App /></BrowserRouter></React.StrictMode>);

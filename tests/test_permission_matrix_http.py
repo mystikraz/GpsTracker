@@ -31,6 +31,7 @@ class GeneratedPermissionMatrixHttpTests(unittest.TestCase):
         Action.DELETE_VEHICLE: ("DELETE", "/api/v1/orgs/{org_id}/vehicles/{vehicle_id}"),
         Action.VIEW_DEVICES: ("GET", "/api/v1/orgs/{org_id}/devices"),
         Action.PROVISION_DEVICE: ("POST", "/api/v1/orgs/{org_id}/devices"),
+        Action.DELETE_DEVICE: ("DELETE", "/api/v1/orgs/{org_id}/devices/{device_id}"),
         Action.ASSIGN_DEVICE: ("POST", "/api/v1/orgs/{org_id}/devices/{device_id}/assign"),
         Action.ROTATE_DEVICE_SECRET: ("POST", "/api/v1/orgs/{org_id}/devices/{device_id}/rotate-secret"),
         Action.VIEW_POSITIONS: ("GET", "/api/v1/orgs/{org_id}/positions"),
