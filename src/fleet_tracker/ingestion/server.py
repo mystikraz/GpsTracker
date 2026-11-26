@@ -30,6 +30,7 @@ async def run() -> None:
     processor = MessageProcessor(
         DeviceAuthenticator(store, protector, pepper=settings.device_auth_pepper),
         store,
+        position_min_interval_seconds=settings.position_min_interval_seconds,
         connection_registry=AuthenticatedConnectionRegistry(
             idle_seconds=settings.authenticated_connection_idle_seconds
         ),

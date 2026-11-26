@@ -8,6 +8,7 @@ import unittest
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 from fleet_tracker.ingestion.auth import (
     DeviceAuthenticator,
@@ -128,6 +129,27 @@ class IngestionTests(unittest.TestCase):
         self.assertEqual(replay.stored_positions, 0)
         self.assertEqual(vendor.parser_status, "vendor_or_unknown")
         self.assertEqual(len(self.store.positions), 4)
+
+    def test_sampling_acknowledges_without_a_database_write_and_preserves_batches(self) -> None:
+        self.processor.position_min_interval_seconds = 60
+        state = ConnectionState()
+        self.process("auth_serial1_captured", state)
+        from fleet_tracker.ingestion.processor import parse_position
+        frame = decode_frame(bytes.fromhex(BY_NAME["position_fix_serial12"]["frame_hex"]))
+        normal = replace(parse_position(frame.body), alarm=0)
+        with patch("fleet_tracker.ingestion.processor.parse_position", return_value=normal):
+            first = self.process("position_fix_serial12", state)
+            before = len(self.store.raw_messages)
+            sampled = self.process("position_fix_serial12", state)
+        self.assertEqual(first.stored_positions, 1)
+        self.assertEqual(sampled.parser_status, "position_sampled")
+        self.assertTrue(sampled.responses)
+        self.assertEqual(len(self.store.raw_messages), before)
+        self.process("batch_0704_serial3", state)
+        self.assertEqual(len(self.store.raw_messages), before + 1)
+        with patch("fleet_tracker.ingestion.processor.parse_position", return_value=replace(normal, alarm=1)):
+            self.process("position_fix_serial12", state)
+        self.assertEqual(len(self.store.raw_messages), before + 2)
 
     def test_generated_secret_uses_observed_serial_code(self) -> None:
         code = generate_auth_code(DEVICE)

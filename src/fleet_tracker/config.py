@@ -33,6 +33,7 @@ class Settings:
     max_connections_per_ip: int = 8
     auth_attempts_per_minute: int = 20
     authenticated_connection_idle_seconds: float = 60.0
+    position_min_interval_seconds: float = 0.0
     device_secret_key: bytes = b""
     device_auth_pepper: bytes = b""
 
@@ -57,6 +58,7 @@ class Settings:
             authenticated_connection_idle_seconds=float(
                 os.environ.get("AUTHENTICATED_CONNECTION_IDLE_SECONDS", "60")
             ),
+            position_min_interval_seconds=float(os.environ.get("POSITION_MIN_INTERVAL_SECONDS", "0")),
             device_secret_key=_secret_bytes("DEVICE_SECRET_KEY_B64"),
             device_auth_pepper=_secret_bytes("DEVICE_AUTH_PEPPER_B64"),
         )

@@ -42,6 +42,7 @@ class ConnectionState:
     source_ip: str = "unknown"
     active: bool = True
     last_activity: float = field(default_factory=time.monotonic)
+    last_position_write: float | None = None
     close_callback: Callable[[], Awaitable[None]] | None = None
 
     def next_server_serial(self) -> int:
@@ -203,10 +204,14 @@ class MessageProcessor:
         store: IngestionStore,
         *,
         connection_registry: AuthenticatedConnectionRegistry | None = None,
+        position_min_interval_seconds: float = 0,
     ) -> None:
+        if not 0 <= position_min_interval_seconds < float('inf'):
+            raise ValueError("position_min_interval_seconds must be finite and non-negative")
         self.authenticator = authenticator
         self.store = store
         self.connection_registry = connection_registry
+        self.position_min_interval_seconds = position_min_interval_seconds
 
     async def process(
         self,
@@ -334,6 +339,18 @@ class MessageProcessor:
             parser_status = f"parse_error:{type(error).__name__}"
             result_code = 1
 
+        # Sampling deliberately drops the whole ordinary live position frame,
+        # including its raw record and outbox event. Alarms and historical batches
+        # are never sampled. Only acknowledge after a prior successful write.
+        now = time.monotonic()
+        if (frame.header.message_id == POSITION_MESSAGE_ID and positions
+                and not positions[0].alarm and state.last_position_write is not None
+                and now - state.last_position_write < self.position_min_interval_seconds):
+            response = encode_general_response(terminal_id, state.next_server_serial(),
+                                               frame.header.serial, frame.header.message_id)
+            return ProcessResult(responses=(response,), accepted=True, authenticated=True,
+                                 parser_status="position_sampled")
+
         stored_positions = await self.store.record_message(
             device=state.device,
             frame=frame,
@@ -342,6 +359,8 @@ class MessageProcessor:
             positions=positions,
             parser_status=parser_status,
         )
+        if frame.header.message_id == POSITION_MESSAGE_ID and positions:
+            state.last_position_write = time.monotonic()
         response = encode_general_response(
             terminal_id,
             state.next_server_serial(),
