@@ -133,6 +133,7 @@ function DeviceSection() {
   const [existingAuthCode, setExistingAuthCode] = useState("");
   const [provisionPassword, setProvisionPassword] = useState("");
   const [authCode, setAuthCode] = useState("");
+  const [provisioning, setProvisioning] = useState(false);
   const [editing, setEditing] = useState<Device | null>(null);
   const [editVehicleId, setEditVehicleId] = useState("");
   const [editAuthCode, setEditAuthCode] = useState("");
@@ -149,6 +150,8 @@ function DeviceSection() {
   useEffect(() => { void load(); }, [orgId]);
 
   async function provision() {
+    setProvisioning(true);
+    setError(undefined);
     try {
       await api.post("/api/v1/auth/reauthenticate", { password: provisionPassword, purpose: "device.provision", csrf_token: "" });
       const result = await api.post<{ device_id: string; auth_code: string }>(`/api/v1/orgs/${orgId}/devices`, {
@@ -160,6 +163,7 @@ function DeviceSection() {
       setTerminalId(""); setExistingAuthCode(""); setProvisionPassword("");
       await load();
     } catch (cause) { setError(cause); }
+    finally { setProvisioning(false); }
   }
 
   function beginEdit(device: Device) {
@@ -189,8 +193,9 @@ function DeviceSection() {
   }
 
   const vehicleName = (id: string) => vehicles.find((vehicle) => vehicle.id === id)?.name ?? "Unassigned";
-  return <Page title="Devices" action={<div className="device-form"><input aria-label="Terminal ID" inputMode="numeric" value={terminalId} onChange={(e) => setTerminalId(e.target.value)} placeholder="12-digit terminal ID" /><select aria-label="Vehicle" value={selectedVehicle} onChange={(e) => setSelectedVehicle(e.target.value)}><option value="" disabled>Vehicle</option>{vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.name}</option>)}</select><input aria-label="Existing device auth code" inputMode="numeric" value={existingAuthCode} onChange={(e) => setExistingAuthCode(e.target.value)} placeholder="Existing 11-digit code" /><input aria-label="Password confirmation" type="password" autoComplete="current-password" value={provisionPassword} onChange={(e) => setProvisionPassword(e.target.value)} placeholder="Confirm password" /><button className="primary" onClick={provision} disabled={!terminalId || !selectedVehicle || !provisionPassword}>Add device</button></div>}>
+  return <Page title="Devices" action={<div className="device-form" aria-busy={provisioning}><input aria-label="Terminal ID" inputMode="numeric" value={terminalId} onChange={(e) => setTerminalId(e.target.value)} placeholder="12-digit terminal ID" disabled={provisioning} /><select aria-label="Vehicle" value={selectedVehicle} onChange={(e) => setSelectedVehicle(e.target.value)} disabled={provisioning}><option value="" disabled>Vehicle</option>{vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.name}</option>)}</select><input aria-label="Existing device auth code" inputMode="numeric" value={existingAuthCode} onChange={(e) => setExistingAuthCode(e.target.value)} placeholder="Existing 11-digit code" disabled={provisioning} /><input aria-label="Password confirmation" type="password" autoComplete="current-password" value={provisionPassword} onChange={(e) => setProvisionPassword(e.target.value)} placeholder="Confirm password" disabled={provisioning} /><button className="primary" onClick={provision} disabled={provisioning || !terminalId || !selectedVehicle || !provisionPassword}>{provisioning ? "Adding device…" : "Add device"}</button></div>}>
     <ErrorNotice error={error} />
+    {provisioning && <p className="notice" role="status" aria-live="polite">Adding device and securing its authentication. Please wait…</p>}
     {authCode && <p className="notice success">Device added. Save this one-time device authentication code: <code>{authCode}</code></p>}
     {editing && <section className="panel" aria-label={`Edit device ${editing.terminal_id}`}><h2>Edit {editing.terminal_id}</h2><div className="inline-form"><label>Vehicle<select value={editVehicleId} onChange={(e) => setEditVehicleId(e.target.value)}>{vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.name}</option>)}</select></label><label>New authentication code<input inputMode="numeric" value={editAuthCode} onChange={(e) => setEditAuthCode(e.target.value)} placeholder="11 digits, optional" /></label><label>Confirm password<input type="password" autoComplete="current-password" value={editPassword} onChange={(e) => setEditPassword(e.target.value)} required /></label><button className="primary" onClick={saveEdit} disabled={!editPassword}>Save changes</button><button onClick={() => setEditing(null)}>Cancel</button></div><p className="muted">Terminal IDs cannot be edited. Leave the authentication field empty to change only the vehicle assignment.</p></section>}
     <div className="table-wrap"><table><caption className="sr-only">Devices</caption><thead><tr><th scope="col">Terminal ID</th><th scope="col">Vehicle</th><th scope="col">Actions</th></tr></thead><tbody>{devices.map((device) => <tr key={device.id}><th scope="row"><code>{device.terminal_id}</code></th><td>{vehicleName(device.vehicle_id)}</td><td className="action-row"><button onClick={() => beginEdit(device)}>Edit</button><button onClick={() => deleteDevice(device)}>Delete</button></td></tr>)}</tbody></table></div>
