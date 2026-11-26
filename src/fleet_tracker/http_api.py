@@ -39,6 +39,11 @@ class LoginBody(BaseModel):
     pre_session: str | None = None
 
 
+class BootstrapOwnerBody(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=12, max_length=1024)
+
+
 class PasswordChangeBody(BaseModel):
     current_password: str
     new_password: str
@@ -151,6 +156,8 @@ class AuthApp:
             public_paths = {
                 "/api/v1/auth/login/csrf",
                 "/api/v1/auth/login",
+                "/api/v1/auth/bootstrap/status",
+                "/api/v1/auth/bootstrap-owner",
                 "/api/v1/auth/reset/request",
                 "/api/v1/auth/reset/consume",
                 "/api/v1/auth/invitations/accept",
@@ -244,6 +251,37 @@ class AuthApp:
                 detail = GENERIC_LOGIN_ERROR if str(error) == GENERIC_LOGIN_ERROR else "request rejected"
                 raise HTTPException(status_code=401, detail=detail)
             response.headers["Set-Cookie"] = cookie_header(ticket.raw_id, max_age=43200)
+            response.headers["X-CSRF-Token"] = ticket.csrf_token
+            response.headers["Cache-Control"] = "no-store"
+            return {"user_id": str(ticket.user_id)}
+
+        @app.get("/api/v1/auth/bootstrap/status")
+        async def bootstrap_status():
+            async with self.sessions() as session:
+                available = await session.scalar(select(User.id).limit(1)) is None
+            return {"available": available}
+
+        @app.post("/api/v1/auth/bootstrap-owner")
+        async def bootstrap_owner(body: BootstrapOwnerBody, request: Request, response: Response):
+            try:
+                cookie = request.cookies.get(LOGIN_CSRF_COOKIE)
+                if not cookie or not body.email.strip():
+                    raise AuthenticationError("request rejected")
+                self.login_csrf.consume(cookie, request.headers.get("X-CSRF-Token", ""))
+                ticket = await self.auth.bootstrap_owner(
+                    body.email,
+                    body.password,
+                    ip=request.client.host if request.client else "unknown",
+                    user_agent=request.headers.get("user-agent"),
+                    request_id=request_id(request),
+                )
+            except AuthenticationError as error:
+                if str(error) == "bootstrap already completed":
+                    raise HTTPException(status_code=409, detail="first account already created")
+                raise HTTPException(status_code=400, detail="account creation rejected")
+            except ValueError:
+                raise HTTPException(status_code=400, detail="password does not meet policy")
+            response.headers["Set-Cookie"] = cookie_header(ticket.raw_id, max_age=8 * 60 * 60)
             response.headers["X-CSRF-Token"] = ticket.csrf_token
             response.headers["Cache-Control"] = "no-store"
             return {"user_id": str(ticket.user_id)}
