@@ -1,5 +1,11 @@
 # Phase B authentication
 
+When the database has no users, the login page exposes a first-run account
+setup link. The first account is created as an owner of an automatically
+created `My organization` organization. The endpoint is protected by the
+login CSRF flow and a database advisory lock; after the first user exists,
+the setup endpoint is closed and normal invite-based account creation applies.
+
 P2 uses invite-only email/password authentication. The bootstrap CLI creates
 the first Owner and organization; it reads `BOOTSTRAP_OWNER_PASSWORD` or a
 hidden stdin prompt and never accepts a password argument.
