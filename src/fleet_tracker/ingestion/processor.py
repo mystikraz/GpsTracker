@@ -239,8 +239,23 @@ class MessageProcessor:
             return ProcessResult(close_connection=True, parser_status="subpackage_unsupported")
 
         if frame.header.message_id == REGISTRATION_MESSAGE_ID:
+            logger.info(
+                "jt808_registration_received source_ip=%s terminal_id=%s "
+                "request_serial=%s body_length=%s",
+                source_ip,
+                terminal_id,
+                frame.header.serial,
+                len(frame.body),
+            )
             registration = await self.authenticator.registration_code(terminal_id)
             if registration is None:
+                logger.warning(
+                    "jt808_registration_rejected source_ip=%s terminal_id=%s "
+                    "request_serial=%s reason=unknown_device",
+                    source_ip,
+                    terminal_id,
+                    frame.header.serial,
+                )
                 return ProcessResult(close_connection=True, parser_status="unknown_device")
             device, auth_code = registration
             state.terminal_id = terminal_id
@@ -261,6 +276,16 @@ class MessageProcessor:
                 frame.header.serial,
                 auth_code,
             )
+            logger.info(
+                "jt808_registration_response source_ip=%s terminal_id=%s "
+                "request_serial=%s server_serial=%s response_message_id=0x8100 "
+                "result=0 auth_code_length=%s",
+                source_ip,
+                terminal_id,
+                frame.header.serial,
+                state.server_serial,
+                len(auth_code),
+            )
             return ProcessResult(
                 responses=(response,),
                 accepted=True,
@@ -273,10 +298,25 @@ class MessageProcessor:
                 auth_code = frame.body.decode("ascii")
             except UnicodeDecodeError:
                 auth_code = ""
+            logger.info(
+                "jt808_authentication_received source_ip=%s terminal_id=%s "
+                "request_serial=%s auth_code_length=%s",
+                source_ip,
+                terminal_id,
+                frame.header.serial,
+                len(auth_code),
+            )
             provisioned_device = await self.authenticator.lookup(terminal_id)
             device = await self.authenticator.authenticate(terminal_id, auth_code)
             if device is None:
                 if provisioned_device is None:
+                    logger.warning(
+                        "jt808_authentication_rejected source_ip=%s terminal_id=%s "
+                        "request_serial=%s reason=unknown_device",
+                        source_ip,
+                        terminal_id,
+                        frame.header.serial,
+                    )
                     return ProcessResult(close_connection=True, parser_status="authentication_failed")
                 response = encode_general_response(
                     terminal_id,
@@ -284,6 +324,15 @@ class MessageProcessor:
                     frame.header.serial,
                     frame.header.message_id,
                     result=1,
+                )
+                logger.warning(
+                    "jt808_authentication_rejected source_ip=%s terminal_id=%s "
+                    "request_serial=%s server_serial=%s response_message_id=0x8001 "
+                    "result=1 reason=code_mismatch",
+                    source_ip,
+                    terminal_id,
+                    frame.header.serial,
+                    state.server_serial,
                 )
                 return ProcessResult(
                     responses=(response,),
@@ -308,6 +357,14 @@ class MessageProcessor:
                 state.next_server_serial(),
                 frame.header.serial,
                 frame.header.message_id,
+            )
+            logger.info(
+                "jt808_authentication_accepted source_ip=%s terminal_id=%s "
+                "request_serial=%s server_serial=%s response_message_id=0x8001 result=0",
+                source_ip,
+                terminal_id,
+                frame.header.serial,
+                state.server_serial,
             )
             return ProcessResult(
                 responses=(response,),

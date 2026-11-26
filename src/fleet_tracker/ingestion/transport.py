@@ -105,6 +105,16 @@ async def serve_client(
             except FrameTooLarge:
                 break
             for frame in frames:
+                if frame.header.message_id in {0x0100, 0x0102}:
+                    logger.info(
+                        "jt808_handshake_frame_received source_ip=%s terminal_id=%s "
+                        "message_id=0x%04x terminal_serial=%s body_length=%s",
+                        ip,
+                        frame.header.terminal_id,
+                        frame.header.message_id,
+                        frame.header.serial,
+                        len(frame.body),
+                    )
                 try:
                     result = await processor.process(frame, state, source_ip=ip)
                 except Exception:
@@ -128,9 +138,26 @@ async def serve_client(
                     )
                 for response in result.responses:
                     writer.write(response)
-                if result.responses:
+                if result.responses and frame.header.message_id in {0x0100, 0x0102}:
+                    logger.info(
+                        "jt808_handshake_response_sent source_ip=%s terminal_id=%s "
+                        "response_count=%s response_bytes=%s parser_status=%s",
+                        ip,
+                        frame.header.terminal_id,
+                        len(result.responses),
+                        sum(len(response) for response in result.responses),
+                        result.parser_status,
+                    )
                     await writer.drain()
-                if result.close_connection:
+                if result.close_connection and frame.header.message_id in {0x0100, 0x0102}:
+                    logger.info(
+                        "jt808_connection_closed source_ip=%s terminal_id=%s "
+                        "message_id=0x%04x parser_status=%s",
+                        ip,
+                        frame.header.terminal_id,
+                        frame.header.message_id,
+                        result.parser_status,
+                    )
                     return
     finally:
         if processor.connection_registry is not None:
