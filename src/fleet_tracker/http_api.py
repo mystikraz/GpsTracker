@@ -954,7 +954,20 @@ class AuthApp:
                     vehicle = await session.scalar(select(Vehicle).where(Vehicle.id == vehicle_id, Vehicle.organization_id == org_id))
                     if device is None or vehicle is None:
                         raise denied()
-                    session.add(DeviceVehicleAssignment(organization_id=org_id, device_id=device_id, vehicle_id=vehicle_id, effective_from=datetime.now(UTC)))
+                    now = datetime.now(UTC)
+                    current_assignment = await session.scalar(
+                        select(DeviceVehicleAssignment).where(
+                            DeviceVehicleAssignment.organization_id == org_id,
+                            DeviceVehicleAssignment.device_id == device_id,
+                            DeviceVehicleAssignment.effective_to.is_(None),
+                        )
+                    )
+                    if current_assignment is not None and current_assignment.vehicle_id == vehicle_id:
+                        return {"ok": True}
+                    if current_assignment is not None:
+                        current_assignment.effective_to = now
+                        await session.flush()
+                    session.add(DeviceVehicleAssignment(organization_id=org_id, device_id=device_id, vehicle_id=vehicle_id, effective_from=now))
                     await write_audit(session, action="device.assign", result="success", request_id=request_id(request), actor_user_id=user.id, organization_id=org_id, target_id=str(device_id))
             return {"ok": True}
 
