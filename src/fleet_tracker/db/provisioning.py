@@ -29,7 +29,7 @@ async def provision_postgres_device(
     auth_code: str | None = None,
     auth_pepper: bytes = b"",
 ) -> tuple[str, str]:
-    """Create a provisioned device and active vehicle assignment.
+    """Create or reactivate a provisioned device and active vehicle assignment.
 
     Returns ``(device_id, auth_code)``. Callers must avoid logging the second
     value; it is returned solely so the bootstrap operator can handle it
@@ -50,23 +50,45 @@ async def provision_postgres_device(
             )
             if organization is None or vehicle is None:
                 raise ValueError("organization and vehicle must exist in the same tenant")
-            if await session.scalar(select(Device).where(Device.terminal_id == terminal_id)) is not None:
+            device = await session.scalar(select(Device).where(Device.terminal_id == terminal_id))
+            if device is not None and device.active:
                 raise ValueError("terminal ID is already provisioned")
+            if device is not None and device.organization_id != organization_uuid:
+                raise ValueError("terminal ID belongs to another organization")
 
-            device = Device(
-                organization_id=organization_uuid,
-                terminal_id=terminal_id,
-                auth_secret_hash=hash_auth_code(auth_code, auth_pepper),
-                auth_secret_ciphertext=secret_protector.encrypt(
+            if device is None:
+                device = Device(
+                    organization_id=organization_uuid,
+                    terminal_id=terminal_id,
+                    auth_secret_hash=hash_auth_code(auth_code, auth_pepper),
+                    auth_secret_ciphertext=secret_protector.encrypt(
+                        auth_code,
+                        associated_data=terminal_id.encode("ascii"),
+                    ),
+                    active=True,
+                    created_at=now,
+                    secret_rotated_at=now,
+                )
+                session.add(device)
+            else:
+                device.auth_secret_hash = hash_auth_code(auth_code, auth_pepper)
+                device.auth_secret_ciphertext = secret_protector.encrypt(
                     auth_code,
                     associated_data=terminal_id.encode("ascii"),
-                ),
-                active=True,
-                created_at=now,
-                secret_rotated_at=now,
-            )
-            session.add(device)
+                )
+                device.active = True
+                device.secret_rotated_at = now
             await session.flush()
+            current_assignment = await session.scalar(
+                select(DeviceVehicleAssignment).where(
+                    DeviceVehicleAssignment.organization_id == organization_uuid,
+                    DeviceVehicleAssignment.device_id == device.id,
+                    DeviceVehicleAssignment.effective_to.is_(None),
+                )
+            )
+            if current_assignment is not None:
+                current_assignment.effective_to = now
+                await session.flush()
             session.add(
                 DeviceVehicleAssignment(
                     organization_id=organization_uuid,
