@@ -718,7 +718,7 @@ class AuthApp:
                 raise denied()
             async with self.sessions() as session:
                 async with organization_transaction(session, org_id):
-                    query = select(Device, DeviceVehicleAssignment.vehicle_id).join(DeviceVehicleAssignment, and_(DeviceVehicleAssignment.device_id == Device.id, DeviceVehicleAssignment.organization_id == org_id)).where(Device.organization_id == org_id, Device.active.is_(True))
+                    query = select(Device, DeviceVehicleAssignment.vehicle_id).join(DeviceVehicleAssignment, and_(DeviceVehicleAssignment.device_id == Device.id, DeviceVehicleAssignment.organization_id == org_id, DeviceVehicleAssignment.effective_to.is_(None))).where(Device.organization_id == org_id, Device.active.is_(True))
                     if principal.group_scope_mode == "restricted":
                         scoped = select(VehicleGroupMembership.vehicle_id).join(MembershipGroupScope, and_(MembershipGroupScope.group_id == VehicleGroupMembership.group_id, MembershipGroupScope.organization_id == org_id)).where(MembershipGroupScope.membership_id == select(OrganizationMembership.id).where(OrganizationMembership.user_id == user.id, OrganizationMembership.organization_id == org_id).scalar_subquery())
                         query = query.where(DeviceVehicleAssignment.vehicle_id.in_(scoped))
