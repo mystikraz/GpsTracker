@@ -367,7 +367,7 @@ class AuthApp:
                 token = await self.auth.issue_reset_token(user.id, request_id=request_id(request))
             elif user is not None and self.email_provider is not None and user.email:
                 token = await self.auth.issue_reset_token(user.id, request_id=request_id(request))
-                link = f"{self.public_base_url}/reset-password#{token}"
+                link = f"{self.public_base_url}/reset-password?token={token}"
                 try:
                     await asyncio.to_thread(
                         self.email_provider.send,
@@ -503,7 +503,7 @@ class AuthApp:
             except (ValueError, OrganizationError):
                 raise denied()
             if self.email_provider is not None and body.email:
-                link = f"{self.public_base_url}/accept-invitation#{token}"
+                link = f"{self.public_base_url}/accept-invitation?token={token}"
                 try:
                     await asyncio.to_thread(
                         self.email_provider.send,

@@ -35,7 +35,9 @@ export const api = {
 };
 
 export function readAndClearFragmentToken(): string {
-  const token = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : "";
-  window.history.replaceState(null, document.title, `${window.location.pathname}${window.location.search}`);
-  return decodeURIComponent(token);
+  const queryToken = new URLSearchParams(window.location.search).get("token");
+  const fragmentToken = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : "";
+  const token = queryToken ?? fragmentToken;
+  window.history.replaceState(null, document.title, window.location.pathname);
+  return token ? decodeURIComponent(token) : "";
 }
