@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import json
+import logging
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
@@ -26,11 +28,13 @@ from .db.tenant import organization_transaction, set_user_context
 from .authorization import Action, Assurance, Resource, Role, authorize
 from .org_service import OrganizationError, accept_invitation, change_membership_role, create_group, create_invitation, membership_for, principal_for, resend_invitation, revoke_invitation, set_membership_status
 from .db.provisioning import provision_postgres_device, rotate_postgres_device_secret
+from .email_provider import EmailDeliveryError, EmailProvider
 from .ingestion.auth import SecretProtector
 
 
 LOGIN_CSRF_COOKIE = "__Host-fleet_login"
 GENERIC_RESET_MESSAGE = "if the account exists, reset instructions will be provided"
+logger = logging.getLogger(__name__)
 
 
 class LoginBody(BaseModel):
@@ -108,10 +112,12 @@ class OrganizationCreateBody(BaseModel):
 
 
 class AuthApp:
-    def __init__(self, sessions: async_sessionmaker[AsyncSession], auth: AuthService, *, manual_links: bool = False, secret_protector: SecretProtector | None = None, auth_pepper: bytes = b"", offline_after_seconds: int = 300, moving_speed_kmh: float = 1.0, sse_max_streams: int = 16) -> None:
+    def __init__(self, sessions: async_sessionmaker[AsyncSession], auth: AuthService, *, manual_links: bool = False, email_provider: EmailProvider | None = None, public_base_url: str = "", secret_protector: SecretProtector | None = None, auth_pepper: bytes = b"", offline_after_seconds: int = 300, moving_speed_kmh: float = 1.0, sse_max_streams: int = 16) -> None:
         self.sessions = sessions
         self.auth = auth
         self.manual_links = manual_links
+        self.email_provider = email_provider
+        self.public_base_url = public_base_url.rstrip("/")
         self.secret_protector = secret_protector
         self.auth_pepper = auth_pepper
         self.login_csrf = LoginPreSessionStore()
@@ -359,6 +365,22 @@ class AuthApp:
                 user = await session.scalar(select(User).where(User.email == body.email.strip().casefold()))
             if user is not None and self.manual_links:
                 token = await self.auth.issue_reset_token(user.id, request_id=request_id(request))
+            elif user is not None and self.email_provider is not None and user.email:
+                token = await self.auth.issue_reset_token(user.id, request_id=request_id(request))
+                link = f"{self.public_base_url}/reset-password#{token}"
+                try:
+                    await asyncio.to_thread(
+                        self.email_provider.send,
+                        recipient=user.email,
+                        subject="Reset your FleetTracker password",
+                        body=(
+                            "<p>We received a request to reset your FleetTracker password.</p>"
+                            f"<p><a href=\"{html.escape(link, quote=True)}\">Reset your password</a></p>"
+                            "<p>This link expires in one hour and can only be used once.</p>"
+                        ),
+                    )
+                except EmailDeliveryError:
+                    logger.exception("password reset email delivery failed")
             response.headers["Cache-Control"] = "no-store"
             result = {"message": GENERIC_RESET_MESSAGE}
             if token is not None:
@@ -472,12 +494,30 @@ class AuthApp:
         @app.post("/api/v1/orgs/{org_id}/invitations")
         async def invite(org_id: UUID, body: InvitationBody, request: Request):
             record, user, _ = await org_principal(request, org_id)
+            if self.email_provider is not None and not body.email:
+                raise HTTPException(status_code=400, detail="email is required for email invitations")
             try:
                 role = Role(body.role)
                 assurance = Assurance.RECENT_REAUTHENTICATION if has_recent_reauthentication(record) else Assurance.PASSWORD
                 token = await create_invitation(self.sessions, actor=user.id, organization_id=org_id, role=role, email=body.email, assurance=assurance, request_id=request_id(request))
             except (ValueError, OrganizationError):
                 raise denied()
+            if self.email_provider is not None and body.email:
+                link = f"{self.public_base_url}/accept-invitation#{token}"
+                try:
+                    await asyncio.to_thread(
+                        self.email_provider.send,
+                        recipient=body.email,
+                        subject="You’re invited to FleetTracker",
+                        body=(
+                            "<p>You’ve been invited to join a FleetTracker organization.</p>"
+                            f"<p><a href=\"{html.escape(link, quote=True)}\">Accept the invitation</a></p>"
+                            "<p>This invitation expires in two days.</p>"
+                        ),
+                    )
+                except EmailDeliveryError:
+                    logger.exception("organization invitation email delivery failed")
+                    raise HTTPException(status_code=502, detail="invitation email could not be sent")
             response = {"created": True}
             if self.manual_links:
                 response["invite_token"] = token
@@ -1051,6 +1091,6 @@ async def _audit_request(sessions, *, action: str, user_id: UUID, org_id: UUID, 
             await write_audit(session, action=action, result="success", request_id=request_id, actor_user_id=user_id, organization_id=org_id, target_id=target_id)
 
 
-def create_app(sessions: async_sessionmaker[AsyncSession], auth: AuthService, *, manual_links: bool = False, secret_protector: SecretProtector | None = None, auth_pepper: bytes = b"", offline_after_seconds: int = 300, moving_speed_kmh: float = 1.0, sse_max_streams: int = 16) -> FastAPI:
-    return AuthApp(sessions, auth, manual_links=manual_links, secret_protector=secret_protector, auth_pepper=auth_pepper, offline_after_seconds=offline_after_seconds, moving_speed_kmh=moving_speed_kmh, sse_max_streams=sse_max_streams).build()
+def create_app(sessions: async_sessionmaker[AsyncSession], auth: AuthService, *, manual_links: bool = False, email_provider: EmailProvider | None = None, public_base_url: str = "", secret_protector: SecretProtector | None = None, auth_pepper: bytes = b"", offline_after_seconds: int = 300, moving_speed_kmh: float = 1.0, sse_max_streams: int = 16) -> FastAPI:
+    return AuthApp(sessions, auth, manual_links=manual_links, email_provider=email_provider, public_base_url=public_base_url, secret_protector=secret_protector, auth_pepper=auth_pepper, offline_after_seconds=offline_after_seconds, moving_speed_kmh=moving_speed_kmh, sse_max_streams=sse_max_streams).build()
 
