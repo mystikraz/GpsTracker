@@ -102,6 +102,11 @@ class OrganizationSettingsBody(BaseModel):
     raw_retention_days: int = Field(ge=1, le=3650)
 
 
+class OrganizationCreateBody(BaseModel):
+    name: str = Field(min_length=1, max_length=256)
+    timezone: str = Field(default="Asia/Kathmandu", min_length=1, max_length=64)
+
+
 class AuthApp:
     def __init__(self, sessions: async_sessionmaker[AsyncSession], auth: AuthService, *, manual_links: bool = False, secret_protector: SecretProtector | None = None, auth_pepper: bytes = b"", offline_after_seconds: int = 300, moving_speed_kmh: float = 1.0, sse_max_streams: int = 16) -> None:
         self.sessions = sessions
@@ -225,6 +230,28 @@ class AuthApp:
                     await set_user_context(session, user.id)
                     rows = await session.execute(select(OrganizationMembership.organization_id, OrganizationMembership.role).where(OrganizationMembership.user_id == user.id, OrganizationMembership.status == "active"))
                     return [{"organization_id": str(row[0]), "role": row[1]} for row in rows]
+
+        @app.post("/api/v1/orgs")
+        async def organization_create(body: OrganizationCreateBody, request: Request):
+            record, user = await current(request)
+            await csrf_request(request, record)
+            now = datetime.now(UTC)
+            async with self.sessions() as session:
+                async with session.begin():
+                    await set_user_context(session, user.id)
+                    organization = Organization(
+                        name=body.name.strip(),
+                        timezone=body.timezone.strip(),
+                        position_retention_months=12,
+                        raw_retention_days=30,
+                        created_at=now,
+                    )
+                    session.add(organization)
+                    await session.flush()
+                    await session.execute(text("SELECT set_config('app.organization_id', :organization_id, true)"), {"organization_id": str(organization.id)})
+                    session.add(OrganizationMembership(organization_id=organization.id, user_id=user.id, role=Role.OWNER.value, status="active", group_scope_mode="all", created_at=now))
+                    await write_audit(session, action="organization.create", result="success", request_id=request_id(request), actor_user_id=user.id, organization_id=organization.id)
+                    return {"organization_id": str(organization.id), "role": Role.OWNER.value}
 
         async def csrf_request(request: Request, record: Session) -> None:
             host = request.headers.get("host", "")
