@@ -746,12 +746,13 @@ class AuthApp:
                 return "no_fix"
             return "moving" if (row.speed_kmh or 0) >= self.moving_speed_kmh else "stopped"
 
-        def latest_payload(row: VehicleLatestState, vehicle: Vehicle, now: datetime) -> dict[str, object]:
+        def latest_payload(row: VehicleLatestState, vehicle: Vehicle, device: Device | None, now: datetime) -> dict[str, object]:
             return {
                 "vehicle_id": str(row.vehicle_id),
                 "vehicle_name": vehicle.name,
                 "plate_number": vehicle.plate_number,
                 "device_id": str(row.device_id),
+                "terminal_id": device.terminal_id if device is not None else None,
                 "status": latest_status(row, now),
                 "last_authenticated_message_at": row.last_authenticated_message_at,
                 "last_position_at": row.last_position_at,
@@ -764,9 +765,12 @@ class AuthApp:
             }
 
         async def latest_rows(session: AsyncSession, *, org_id: UUID, user_id: UUID, restricted: bool, after: datetime | None = None, after_vehicle_id: UUID | None = None):
-            query = select(VehicleLatestState, Vehicle).join(
+            query = select(VehicleLatestState, Vehicle, Device).join(
                 Vehicle,
                 and_(Vehicle.organization_id == org_id, Vehicle.id == VehicleLatestState.vehicle_id),
+            ).outerjoin(
+                Device,
+                and_(Device.organization_id == org_id, Device.id == VehicleLatestState.device_id),
             ).where(VehicleLatestState.organization_id == org_id)
             if after is not None:
                 query = query.where(
@@ -793,7 +797,7 @@ class AuthApp:
                 async with organization_transaction(session, org_id):
                     rows = await latest_rows(session, org_id=org_id, user_id=user.id, restricted=principal.group_scope_mode == "restricted")
                     now = datetime.now(UTC)
-                    return [latest_payload(row, vehicle, now) for row, vehicle in rows]
+                    return [latest_payload(row, vehicle, device, now) for row, vehicle, device in rows]
 
         @app.get("/api/v1/orgs/{org_id}/vehicles/{vehicle_id}/latest-state")
         async def vehicle_latest_state(org_id: UUID, vehicle_id: UUID, request: Request):
@@ -808,7 +812,8 @@ class AuthApp:
                     row = await session.scalar(select(VehicleLatestState).where(VehicleLatestState.organization_id == org_id, VehicleLatestState.vehicle_id == vehicle_id))
                     if row is None:
                         raise denied()
-                    return latest_payload(row, vehicle, datetime.now(UTC))
+                    device = await session.scalar(select(Device).where(Device.organization_id == org_id, Device.id == row.device_id))
+                    return latest_payload(row, vehicle, device, datetime.now(UTC))
 
         @app.get("/api/v1/orgs/{org_id}/vehicles/{vehicle_id}/history")
         async def vehicle_history(
@@ -892,11 +897,11 @@ class AuthApp:
                             async with organization_transaction(session, org_id):
                                 rows = await latest_rows(session, org_id=org_id, user_id=user.id, restricted=current_principal.group_scope_mode == "restricted", after=cursor_time, after_vehicle_id=cursor_vehicle)
                                 now = datetime.now(UTC)
-                                for row, vehicle in rows:
+                                for row, vehicle, device in rows:
                                     cursor_time = row.updated_at
                                     cursor_vehicle = row.vehicle_id
                                     event_id = f"{row.updated_at.isoformat()}|{row.vehicle_id}"
-                                    payload = json.dumps(latest_payload(row, vehicle, now), default=str, separators=(",", ":"))
+                                    payload = json.dumps(latest_payload(row, vehicle, device, now), default=str, separators=(",", ":"))
                                     yield f"id: {event_id}\nevent: vehicle-state\ndata: {payload}\n\n"
                         yield ": heartbeat\n\n"
                         await asyncio.sleep(1.5)

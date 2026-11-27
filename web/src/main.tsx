@@ -10,7 +10,7 @@ type Me = { user_id: string; email: string; status: string };
 type Organization = { organization_id: string; role: Role };
 type Vehicle = { id: string; name: string; plate_number: string | null };
 type Device = { id: string; terminal_id: string; vehicle_id: string };
-type Latest = { vehicle_id: string; vehicle_name: string; plate_number: string | null; status: "moving" | "stopped" | "offline" | "no_fix"; latitude: number | null; longitude: number | null; gps_timestamp: string | null; speed_kmh: number | null };
+type Latest = { vehicle_id: string; vehicle_name: string; plate_number: string | null; terminal_id: string | null; status: "moving" | "stopped" | "offline" | "no_fix"; latitude: number | null; longitude: number | null; gps_timestamp: string | null; speed_kmh: number | null };
 
 function ErrorNotice({ error }: { error: unknown }) {
   if (!error) return null;
@@ -62,7 +62,19 @@ function Organizations() { const navigate = useNavigate(); const [orgs, setOrgs]
 
 type TrailPoint = { latitude: number; longitude: number };
 
-function FleetMapCanvas({ vehicles, selectedVehicleId, trail, onSelect, onError }: { vehicles: Latest[]; selectedVehicleId: string; trail: TrailPoint[]; onSelect: (vehicleId: string) => void; onError: (message: string) => void }) {
+const vehiclePalette = ["#0f766e", "#c2410c", "#6d28d9", "#0369a1", "#be123c", "#4d7c0f"];
+
+function vehicleColor(vehicleId: string) {
+  let hash = 0;
+  for (const character of vehicleId) hash = (hash * 31 + character.charCodeAt(0)) | 0;
+  return vehiclePalette[Math.abs(hash) % vehiclePalette.length];
+}
+
+function terminalLabel(terminalId: string | null) {
+  return terminalId ? `Tracker · ${terminalId.slice(-6)}` : "Tracker ID unavailable";
+}
+
+function FleetMapCanvas({ vehicles, selectedVehicleId, trail, colors, onSelect, onError }: { vehicles: Latest[]; selectedVehicleId: string; trail: TrailPoint[]; colors: Record<string, string>; onSelect: (vehicleId: string) => void; onError: (message: string) => void }) {
   const mapNode = React.useRef<HTMLDivElement>(null);
   const map = React.useRef<MapLibreMap | null>(null);
   const markers = React.useRef<Marker[]>([]);
@@ -84,13 +96,18 @@ function FleetMapCanvas({ vehicles, selectedVehicleId, trail, onSelect, onError 
     if (!instance || !mapReady) return;
     markers.current.forEach((marker) => marker.remove());
     markers.current = vehicles.map((vehicle) => {
-      const color = vehicle.status === "moving" ? "#187047" : "#8c5d19";
+      const color = colors[vehicle.vehicle_id] ?? vehiclePalette[0];
       const element = document.createElement("div");
-      element.className = "fleet-marker";
+      element.className = `fleet-marker${vehicle.vehicle_id === selectedVehicleId ? " selected" : ""}`;
       element.style.backgroundColor = color;
-      element.setAttribute("aria-label", vehicle.vehicle_name);
+      element.setAttribute("role", "button");
+      element.setAttribute("tabindex", "0");
+      element.setAttribute("aria-label", `${vehicle.vehicle_name}, ${terminalLabel(vehicle.terminal_id)}`);
+      element.setAttribute("aria-current", vehicle.vehicle_id === selectedVehicleId ? "true" : "false");
+      element.title = `${vehicle.vehicle_name} · ${terminalLabel(vehicle.terminal_id)}`;
       element.addEventListener("click", () => onSelect(vehicle.vehicle_id));
-      return new maplibregl.Marker({ element }).setLngLat([vehicle.longitude!, vehicle.latitude!]).setPopup(new Popup({ offset: 14 }).setHTML(`<strong>${vehicle.vehicle_name}</strong><br />${vehicle.status.replace("_", " ")}`)).addTo(instance);
+      element.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(vehicle.vehicle_id); } });
+      return new maplibregl.Marker({ element }).setLngLat([vehicle.longitude!, vehicle.latitude!]).setPopup(new Popup({ offset: 14 }).setHTML(`<strong>${vehicle.vehicle_name}</strong><br />${terminalLabel(vehicle.terminal_id)}<br />${vehicle.status.replace("_", " ")}`)).addTo(instance);
     });
     if (vehicles.length > 0) {
       const bounds = new maplibregl.LngLatBounds();
@@ -98,7 +115,7 @@ function FleetMapCanvas({ vehicles, selectedVehicleId, trail, onSelect, onError 
       instance.fitBounds(bounds, { padding: 56, maxZoom: 16, duration: 0 });
     }
     return () => { markers.current.forEach((marker) => marker.remove()); };
-  }, [mapReady, vehicles, onSelect]);
+  }, [mapReady, vehicles, selectedVehicleId, colors, onSelect]);
 
   useEffect(() => {
     const instance = map.current;
@@ -108,14 +125,15 @@ function FleetMapCanvas({ vehicles, selectedVehicleId, trail, onSelect, onError 
     if (source) source.setData(data);
     else {
       instance.addSource("vehicle-trail", { type: "geojson", data });
-      instance.addLayer({ id: "vehicle-trail", type: "line", source: "vehicle-trail", paint: { "line-color": "#1d4ed8", "line-width": 4, "line-opacity": 0.8 } });
+      instance.addLayer({ id: "vehicle-trail", type: "line", source: "vehicle-trail", paint: { "line-color": colors[selectedVehicleId] ?? vehiclePalette[0], "line-width": 5, "line-opacity": 0.9, "line-blur": 0.1 } });
     }
-  }, [mapReady, trail]);
+    if (instance.getLayer("vehicle-trail")) instance.setPaintProperty("vehicle-trail", "line-color", colors[selectedVehicleId] ?? vehiclePalette[0]);
+  }, [mapReady, trail, selectedVehicleId, colors]);
 
   return <div ref={mapNode} className="fleet-map" aria-label={selectedVehicleId ? "Live vehicle map with selected vehicle trail" : "Live vehicle map"} />;
 }
 
-function FleetMap() { const { orgId = "" } = useParams(); const [vehicles, setVehicles] = useState<Latest[]>([]); const [selectedVehicleId, setSelectedVehicleId] = useState(""); const [trail, setTrail] = useState<TrailPoint[]>([]); const [state, setState] = useState("connecting"); const [error, setError] = useState(""); const reportMapError = React.useCallback((message: string) => setError(message), []); const selectVehicle = React.useCallback((vehicleId: string) => setSelectedVehicleId(vehicleId), []); useEffect(() => { let alive = true; api.get<Latest[]>(`/api/v1/orgs/${orgId}/vehicles/latest-state`).then((rows) => { setVehicles(rows); setSelectedVehicleId((current) => current || rows.find((row) => row.latitude !== null && row.longitude !== null)?.vehicle_id || ""); }).catch((cause) => { if (alive) { setState("offline"); setError(cause instanceof Error ? cause.message : "Vehicle data could not be loaded"); } }); const source = new EventSource(`/api/v1/orgs/${orgId}/vehicles/stream`, { withCredentials: true }); source.onopen = () => alive && setState("connected"); source.onerror = () => alive && setState("reconnecting"); source.addEventListener("vehicle-state", (event) => { const next = JSON.parse((event as MessageEvent).data) as Latest; setVehicles((current) => [...current.filter((item) => item.vehicle_id !== next.vehicle_id), next]); }); return () => { alive = false; source.close(); }; }, [orgId]); useEffect(() => { if (selectedVehicleId || !vehicles.length) return; const positioned = vehicles.find((vehicle) => vehicle.latitude !== null && vehicle.longitude !== null); if (positioned) setSelectedVehicleId(positioned.vehicle_id); }, [selectedVehicleId, vehicles]); useEffect(() => { if (!selectedVehicleId) { setTrail([]); return; } const to = new Date(); const from = new Date(to.getTime() - 24 * 60 * 60 * 1000); api.get<{ points: TrailPoint[] }>(`/api/v1/orgs/${orgId}/vehicles/${selectedVehicleId}/history?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`).then((result) => setTrail(result.points)).catch((cause) => setError(cause instanceof Error ? cause.message : "Vehicle trail could not be loaded")); }, [orgId, selectedVehicleId]); const positioned = vehicles.filter((vehicle) => vehicle.latitude !== null && vehicle.longitude !== null); return <Page title="Live fleet" action={<span className={`connection ${state}`}>{state}</span>}><ErrorNotice error={error} /><div className="fleet-grid"><section className="map-wrap" aria-label="Fleet map"><FleetMapCanvas vehicles={positioned} selectedVehicleId={selectedVehicleId} trail={trail} onSelect={selectVehicle} onError={reportMapError} /><p className="map-caption">{positioned.length} vehicles with a current fix. Click a marker to show its last 24-hour trail.</p></section><section aria-labelledby="vehicles-heading"><h2 id="vehicles-heading">Vehicle status</h2><div className="stack">{vehicles.map((vehicle) => <button className="list-row" key={vehicle.vehicle_id} onClick={() => selectVehicle(vehicle.vehicle_id)}><span><strong>{vehicle.vehicle_name}</strong><small>{vehicle.plate_number ?? "No plate"}</small></span><span className={`status ${vehicle.status}`}>{vehicle.status.replace("_", " ")}</span></button>)}</div></section></div></Page>; }
+function FleetMap() { const { orgId = "" } = useParams(); const [vehicles, setVehicles] = useState<Latest[]>([]); const [selectedVehicleId, setSelectedVehicleId] = useState(""); const [trail, setTrail] = useState<TrailPoint[]>([]); const [state, setState] = useState("connecting"); const [error, setError] = useState(""); const reportMapError = React.useCallback((message: string) => setError(message), []); const selectVehicle = React.useCallback((vehicleId: string) => setSelectedVehicleId(vehicleId), []); const positioned = vehicles.filter((vehicle) => vehicle.latitude !== null && vehicle.longitude !== null); const colors = React.useMemo(() => Object.fromEntries(vehicles.map((vehicle) => [vehicle.vehicle_id, vehicleColor(vehicle.vehicle_id)])), [vehicles]); useEffect(() => { let alive = true; api.get<Latest[]>(`/api/v1/orgs/${orgId}/vehicles/latest-state`).then((rows) => { setVehicles(rows); setSelectedVehicleId((current) => current || rows.find((row) => row.latitude !== null && row.longitude !== null)?.vehicle_id || ""); }).catch((cause) => { if (alive) { setState("offline"); setError(cause instanceof Error ? cause.message : "Vehicle data could not be loaded"); } }); const source = new EventSource(`/api/v1/orgs/${orgId}/vehicles/stream`, { withCredentials: true }); source.onopen = () => alive && setState("connected"); source.onerror = () => alive && setState("reconnecting"); source.addEventListener("vehicle-state", (event) => { const next = JSON.parse((event as MessageEvent).data) as Latest; setVehicles((current) => [...current.filter((item) => item.vehicle_id !== next.vehicle_id), next]); }); return () => { alive = false; source.close(); }; }, [orgId]); useEffect(() => { if (selectedVehicleId || !vehicles.length) return; const positionedVehicle = vehicles.find((vehicle) => vehicle.latitude !== null && vehicle.longitude !== null); if (positionedVehicle) setSelectedVehicleId(positionedVehicle.vehicle_id); }, [selectedVehicleId, vehicles]); useEffect(() => { if (!selectedVehicleId) { setTrail([]); return; } const to = new Date(); const from = new Date(to.getTime() - 24 * 60 * 60 * 1000); api.get<{ points: TrailPoint[] }>(`/api/v1/orgs/${orgId}/vehicles/${selectedVehicleId}/history?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`).then((result) => setTrail(result.points)).catch((cause) => setError(cause instanceof Error ? cause.message : "Vehicle trail could not be loaded")); }, [orgId, selectedVehicleId]); return <Page title="Live fleet" action={<span className={`connection ${state}`}>{state}</span>}><ErrorNotice error={error} /><div className="fleet-grid"><section className="map-wrap" aria-label="Fleet map"><FleetMapCanvas vehicles={positioned} selectedVehicleId={selectedVehicleId} trail={trail} colors={colors} onSelect={selectVehicle} onError={reportMapError} /><div className="map-legend" aria-label="Vehicle trail legend"><strong>Trails</strong>{positioned.map((vehicle) => <button className={`legend-item${vehicle.vehicle_id === selectedVehicleId ? " selected" : ""}`} key={vehicle.vehicle_id} onClick={() => selectVehicle(vehicle.vehicle_id)} aria-pressed={vehicle.vehicle_id === selectedVehicleId}><span className="legend-swatch" style={{ backgroundColor: colors[vehicle.vehicle_id] }} aria-hidden="true" /><span><strong>{vehicle.vehicle_name}</strong><small>{terminalLabel(vehicle.terminal_id)}</small></span></button>)}</div><p className="map-caption">{positioned.length} vehicles with a current fix. Click a marker or legend item to show its matching 24-hour trail.</p></section><section aria-labelledby="vehicles-heading"><h2 id="vehicles-heading">Vehicle status</h2><div className="stack">{vehicles.map((vehicle) => <button className={`list-row${vehicle.vehicle_id === selectedVehicleId ? " selected" : ""}`} key={vehicle.vehicle_id} onClick={() => selectVehicle(vehicle.vehicle_id)} aria-pressed={vehicle.vehicle_id === selectedVehicleId}><span className="vehicle-row-label"><span className="legend-swatch" style={{ backgroundColor: colors[vehicle.vehicle_id] }} aria-hidden="true" /><span><strong>{vehicle.vehicle_name}</strong><small>{vehicle.plate_number ?? "No plate"} · {terminalLabel(vehicle.terminal_id)}</small></span></span><span className={`status ${vehicle.status}`}>{vehicle.status.replace("_", " ")}</span></button>)}</div></section></div></Page>; }
 
 function GenericOrgPage({ title }: { title: string }) { return <Page title={title}><div className="empty-panel"><h2>{title}</h2><p className="muted">This workspace is ready for the authorized organization workflow.</p></div></Page>; }
 function Page({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) { return <><div className="page-heading"><div><p className="eyebrow">Organization workspace</p><h1>{title}</h1></div>{action}</div>{children}</>; }
