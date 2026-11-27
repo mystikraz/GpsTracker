@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Fleet map</title>
+<title>GoastraLabs | GPS Tracker</title>
+<link rel="icon" href="/web/public/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&display=swap" rel="stylesheet">
@@ -16,7 +17,8 @@
   html, body { height: 100%; margin: 0; }
   body { font: 15px/1.4 "IBM Plex Sans", system-ui, sans-serif; color: var(--ink); background: var(--bg); display: flex; }
   aside { width: 330px; background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; z-index: 1000; }
-  header { padding: 16px 18px; border-bottom: 1px solid var(--line); }
+  header { display: flex; align-items: center; gap: 12px; padding: 12px 18px; border-bottom: 1px solid var(--line); }
+  .brand-logo { width: 150px; height: 40px; object-fit: contain; }
   h1 { font-size: 17px; margin: 0 0 2px; font-weight: 600; }
   #summary { color: var(--muted); font-size: 13px; }
   #list { overflow-y: auto; flex: 1; }
@@ -39,8 +41,11 @@
 <body>
 <aside>
   <header>
-    <h1>Vehicles</h1>
-    <div id="summary">Loading…</div>
+    <img class="brand-logo" src="/web/public/logo.svg" alt="GoastraLabs GPS Tracker">
+    <div>
+      <h1>Vehicles</h1>
+      <div id="summary">Loading…</div>
+    </div>
   </header>
   <div id="list"></div>
 </aside>

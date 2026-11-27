@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" role="img" aria-labelledby="title description">
+  <title id="title">GoastraLabs GPS Tracker mark</title>
+  <description id="description">GPS location pin surrounded by a G-shaped ring</description>
+  <rect width="240" height="240" rx="52" fill="#153d36"/>
+
+  <circle cx="120" cy="120" r="82" fill="none" stroke="#fffdf8" stroke-width="20"/>
+  <path d="M202 120h-46v31" fill="none" stroke="#fffdf8" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <path d="M120 49c-30 0-54 24-54 54 0 43 54 86 54 86s54-43 54-86c0-30-24-54-54-54Z" fill="#e2a84b"/>
+  <circle cx="120" cy="103" r="24" fill="#153d36"/>
+  <circle cx="120" cy="103" r="10" fill="#fffdf8"/>
+</svg>
