@@ -27,6 +27,11 @@ input, select { width: 100%; min-height: 46px; border: 1px solid #aebeb6; backgr
 .org-create h2 { margin-bottom: 6px; }
 .org-create .inline-form { align-items: end; }
 .org-create label { flex: 1 1 220px; }
+.edit-panel { margin: 16px 0; }
+.table-identity { display: inline-flex; align-items: center; gap: 8px; }
+.spinner { display: inline-block; width: 1em; height: 1em; margin-right: 7px; vertical-align: -0.12em; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: button-spin .65s linear infinite; }
+button[aria-busy="true"] { cursor: wait; }
+@keyframes button-spin { to { transform: rotate(360deg); } }
 .auth-secondary { margin-top: 18px; padding-top: 18px; border-top: 1px solid #d8e1da; }
 .table-wrap { overflow-x: auto; background: #fffdf8; border: 1px solid #d8e1da; } table { width: 100%; border-collapse: collapse; min-width: 620px; } th, td { padding: 14px 16px; border-bottom: 1px solid #d8e1da; text-align: left; vertical-align: top; } thead { background: #e8efea; } code { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .75rem; } .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 .narrow-form { max-width: 520px; } .toolbar, .inline-form, .device-form, .action-row { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; } .toolbar { margin-bottom: 22px; } .inline-form input, .device-form input, .device-form select { min-width: 180px; width: auto; flex: 1 1 180px; } .action-row button { text-decoration: underline; font-size: .85rem; }
