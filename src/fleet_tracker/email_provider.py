@@ -29,15 +29,26 @@ class ResendProvider:
         req = request.Request(
             "https://api.resend.com/emails",
             data=payload,
-            headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json", "Accept": "application/json"},
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "User-Agent": "FleetTracker/1.0",
+            },
             method="POST",
         )
         try:
             with request.urlopen(req, timeout=10) as response:
                 if response.status < 200 or response.status >= 300:
-                    raise EmailDeliveryError("email provider rejected the message")
-        except (error.HTTPError, error.URLError, TimeoutError, OSError) as exc:
-            raise EmailDeliveryError("email provider request failed") from exc
+                    raise EmailDeliveryError(f"email provider rejected the message (HTTP {response.status})")
+        except error.HTTPError as exc:
+            try:
+                detail = exc.read().decode("utf-8", errors="replace")[:500]
+            except OSError:
+                detail = ""
+            raise EmailDeliveryError(f"email provider rejected the message (HTTP {exc.code}): {detail}") from exc
+        except (error.URLError, TimeoutError, OSError) as exc:
+            raise EmailDeliveryError(f"email provider request failed: {exc}") from exc
 
 
 @dataclass(frozen=True, slots=True)
