@@ -21,6 +21,7 @@ from .auth_security import (
 from .auth_service import AuthService, GENERIC_LOGIN_ERROR
 from .csrf import COOKIE_NAME, clear_cookie_header, cookie_header, validate_origin
 from .db.models import AuditEvent, Device, DeviceVehicleAssignment, MembershipGroupScope, Organization, OrganizationInvitation, OrganizationMembership, Position, Session, User, UserGroup, Vehicle, VehicleGroupMembership, VehicleLatestState
+from .vehicle_colors import next_vehicle_color
 from .db.tenant import organization_transaction, set_user_context
 from .authorization import Action, Assurance, Resource, Role, authorize
 from .org_service import OrganizationError, accept_invitation, change_membership_role, create_group, create_invitation, membership_for, principal_for, resend_invitation, revoke_invitation, set_membership_status
@@ -645,7 +646,7 @@ class AuthApp:
                     if principal.group_scope_mode == "restricted":
                         query = query.where(exists(select(VehicleGroupMembership.vehicle_id).join(MembershipGroupScope, and_(MembershipGroupScope.group_id == VehicleGroupMembership.group_id, MembershipGroupScope.organization_id == org_id)).where(VehicleGroupMembership.vehicle_id == Vehicle.id, MembershipGroupScope.membership_id == select(OrganizationMembership.id).where(OrganizationMembership.user_id == user.id, OrganizationMembership.organization_id == org_id).scalar_subquery())))
                     rows = await session.scalars(query)
-                    return [{"id": str(row.id), "name": row.name, "plate_number": row.plate_number} for row in rows]
+                    return [{"id": str(row.id), "name": row.name, "plate_number": row.plate_number, "color": row.color} for row in rows]
 
         @app.post("/api/v1/orgs/{org_id}/vehicles")
         async def vehicle_create(org_id: UUID, body: VehicleBody, request: Request):
@@ -655,11 +656,12 @@ class AuthApp:
                 raise denied()
             async with self.sessions() as session:
                 async with organization_transaction(session, org_id):
-                    vehicle = Vehicle(organization_id=org_id, name=body.name, plate_number=body.plate_number, created_at=datetime.now(UTC))
+                    used_colors = set(await session.scalars(select(Vehicle.color).where(Vehicle.organization_id == org_id)))
+                    vehicle = Vehicle(organization_id=org_id, name=body.name, plate_number=body.plate_number, color=next_vehicle_color(used_colors), created_at=datetime.now(UTC))
                     session.add(vehicle)
                     await session.flush()
                     await write_audit(session, action="vehicle.create", result="success", request_id=request_id(request), actor_user_id=user.id, organization_id=org_id, target_id=str(vehicle.id))
-                    return {"id": str(vehicle.id)}
+                    return {"id": str(vehicle.id), "color": vehicle.color}
 
         @app.get("/api/v1/orgs/{org_id}/vehicles/{vehicle_id}")
         async def vehicle_get(org_id: UUID, vehicle_id: UUID, request: Request):
@@ -674,7 +676,7 @@ class AuthApp:
                     if principal.group_scope_mode == "restricted":
                         if not await vehicle_in_scope(session, org_id=org_id, user_id=user.id, vehicle_id=vehicle_id):
                             raise denied()
-                    return {"id": str(vehicle.id), "name": vehicle.name, "plate_number": vehicle.plate_number}
+                    return {"id": str(vehicle.id), "name": vehicle.name, "plate_number": vehicle.plate_number, "color": vehicle.color}
 
         @app.patch("/api/v1/orgs/{org_id}/vehicles/{vehicle_id}")
         async def vehicle_update(org_id: UUID, vehicle_id: UUID, body: VehicleBody, request: Request):
@@ -751,6 +753,7 @@ class AuthApp:
                 "vehicle_id": str(row.vehicle_id),
                 "vehicle_name": vehicle.name,
                 "plate_number": vehicle.plate_number,
+                "color": vehicle.color,
                 "device_id": str(row.device_id),
                 "terminal_id": device.terminal_id if device is not None else None,
                 "status": latest_status(row, now),

@@ -165,6 +165,7 @@ class Vehicle(Base):
     organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     plate_number: Mapped[str | None] = mapped_column(Text)
+    color: Mapped[str] = mapped_column(String(7), nullable=False, server_default="#0f766e")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
