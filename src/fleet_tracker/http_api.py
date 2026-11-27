@@ -234,8 +234,8 @@ class AuthApp:
             async with self.sessions() as session:
                 async with session.begin():
                     await set_user_context(session, user.id)
-                    rows = await session.execute(select(OrganizationMembership.organization_id, OrganizationMembership.role).where(OrganizationMembership.user_id == user.id, OrganizationMembership.status == "active"))
-                    return [{"organization_id": str(row[0]), "role": row[1]} for row in rows]
+                    rows = await session.execute(select(OrganizationMembership.organization_id, OrganizationMembership.role, Organization.name).join(Organization, Organization.id == OrganizationMembership.organization_id).where(OrganizationMembership.user_id == user.id, OrganizationMembership.status == "active"))
+                    return [{"organization_id": str(row[0]), "role": row[1], "name": row[2]} for row in rows]
 
         @app.post("/api/v1/orgs")
         async def organization_create(body: OrganizationCreateBody, request: Request):
